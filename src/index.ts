@@ -86,6 +86,10 @@ export const apply = mountOnce('dsh-session-buddy', applyImpl)
 /** Native-toast trigger route the browser half fetches. Loopback-only. */
 export const TOAST_ROUTE = '/api/session-buddy/toast'
 
+/** Maximum accepted request body. Toasts carry only title+body text, so a
+ * small cap (and an early stream destroy) is a cheap DoS hardening. */
+const MAX_BODY_BYTES = 8 * 1024
+
 /** The request's socket address (authoritative; never trust forwarded headers). */
 function isLoopbackAddress(address: string | undefined): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1'
@@ -121,12 +125,24 @@ function isLoopbackRequest(request: IncomingMessage): boolean {
   }
 }
 
-/** Read a small JSON request body. Resolves undefined on any failure. */
+/** Read a small JSON request body. Resolves undefined on any failure (malformed
+ * JSON, over-long body, or a stream error). */
 function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown> | undefined> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = []
-    request.on('data', (chunk: Buffer) => { chunks.push(chunk) })
+    let size = 0
+    request.on('data', (chunk: Buffer) => {
+      size += chunk.length
+      if (size > MAX_BODY_BYTES) {
+        // Kill the stream instead of buffering an unbounded body.
+        request.destroy()
+        resolve(undefined)
+        return
+      }
+      chunks.push(chunk)
+    })
     request.on('end', () => {
+      if (size > MAX_BODY_BYTES) return // already resolved via destroy path
       try {
         const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
         resolve(typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : undefined)
@@ -138,7 +154,16 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
   })
 }
 
-function writeJson(response: ServerResponse, status: number, body: unknown): void {
+/** A toast-route JSON body: the browser half sets `ok`, a short machine-readable
+ * `error` code on failure, and the accepted `title`/`body` echo back on success. */
+interface ToastResultBody {
+  ok: boolean
+  error?: string
+  title?: string
+  body?: string
+}
+
+function writeJson(response: ServerResponse, status: number, body: ToastResultBody): void {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }
@@ -181,22 +206,22 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
     path: TOAST_ROUTE,
     handler: async (request, response) => {
       if (!isLoopbackRequest(request)) {
-        writeJson(response, 403, { error: 'forbidden: loopback-only' })
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
         return
       }
       if (request.method !== 'POST') {
-        writeJson(response, 405, { error: `method not allowed: ${request.method}` })
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
         return
       }
       const body = await readJsonBody(request)
       if (body === undefined) {
-        writeJson(response, 400, { error: 'invalid JSON body' })
+        writeJson(response, 400, { ok: false, error: 'invalid-json-body' })
         return
       }
       const title = typeof body.title === 'string' && body.title !== '' ? body.title : 'dsh-session-buddy'
       const text = typeof body.body === 'string' ? body.body : ''
       fireNativeToast({ title, body: text })
-      writeJson(response, 200, { ok: true })
+      writeJson(response, 200, { ok: true, title, body: text })
     },
   }
   ctx.effect(() => {
