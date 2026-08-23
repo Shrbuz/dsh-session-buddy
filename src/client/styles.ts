@@ -37,7 +37,10 @@ export const BUDDY_CSS = `
   position: fixed;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 2147483000;
+  /* Below the official modal layer (z-index 1000 — settings dialog), so the
+     ladder never covers the settings popup; still above conversation content
+     (official z-index max 101). Tooltip uses 901 to stay above the rail. */
+  z-index: 900;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -154,7 +157,7 @@ export const BUDDY_CSS = `
   display: grid;
   place-items: center;
   box-shadow: var(--dsb-shadow);
-  z-index: 2147483000;
+  z-index: 900;
   transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 .dsb-outline-bottom svg { display: block; }
@@ -206,7 +209,7 @@ export const BUDDY_CSS = `
   box-shadow: var(--dsb-shadow);
   font-size: 12px;
   line-height: 16px;
-  z-index: 2147483001;
+  z-index: 901;
   pointer-events: none;
 }
 .dsb-outline-tooltip-num {
