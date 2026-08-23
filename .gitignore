@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# pnpm local store (project-internal cache)
+.pnpm-store/
+
+# local debug artifacts (browser profiles, dumps, screenshots)
+.logs/
+
+# npm pack output
+*.tgz
+
+# local-only release checklist (not tracked)
+RELEASE.md
+
+# internal requirements/design notes (not tracked — not part of the published repo)
+dsh-session-buddy-REQUIREMENTS.md
+
+# git-manager skill local config (may hold credentials)
+.cqy-skills-setting/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo

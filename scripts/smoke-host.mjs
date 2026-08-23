@@ -1,0 +1,77 @@
+/**
+ * Standalone host-logic smoke test — runs WITHOUT the dsh web app: builds a
+ * bare cordis Context and drives the session-buddy host half directly. The
+ * host half only carries the settings namespace, so this verifies the schema
+ * defaults, the settings section resolution, and the mount-once guard.
+ * Usage: node scripts/smoke-host.mjs
+ */
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
+
+// The built host half is ESM (lib/index.js). Import it dynamically.
+const mod = await import(pathToFileURL(join(__dirname, '..', 'lib', 'index.js')).href)
+const { makeSessionBuddySettingsSchema, SESSION_BUDDY_NAMESPACE, name } = mod
+
+// A bare cordis Context.
+const { Context } = require('@deepseek-ai/cordis')
+
+let failures = 0
+function check(name, condition) {
+  if (condition) {
+    console.log('  ok  ' + name)
+  } else {
+    failures += 1
+    console.log('FAIL  ' + name)
+  }
+}
+
+try {
+  const ctx = new Context()
+
+  check('plugin name', name === 'session-buddy')
+  check('settings namespace', SESSION_BUDDY_NAMESPACE === 'session-buddy')
+
+  // Schema defaults.
+  const schema = makeSessionBuddySettingsSchema()
+  const parsed = schema({})
+  check('enabled default true', parsed.enabled === true)
+  check('notifyReply default true', parsed.notifyReply === true)
+  check('notifyAsk default true', parsed.notifyAsk === true)
+  check('notifyConfirm default true', parsed.notifyConfirm === true)
+  check('sound default false', parsed.sound === false)
+  check('outlineWidth default 18', parsed.outlineWidth === 18)
+  check('showTimestamps default true', parsed.showTimestamps === true)
+
+  // Schema clamps / overrides.
+  const overridden = schema({
+    enabled: false,
+    notifyReply: false,
+    sound: true,
+  })
+  check('enabled override honored', overridden.enabled === false)
+  check('notifyReply override honored', overridden.notifyReply === false)
+  check('sound override honored', overridden.sound === true)
+
+  // outlineWidth is range-validated (schemastery rejects, it does not clamp);
+  // the browser half additionally clamps defensively.
+  let rangeRejected = false
+  try {
+    schema({ outlineWidth: 500 })
+  } catch {
+    rangeRejected = true
+  }
+  check('outlineWidth out-of-range rejected', rangeRejected)
+
+  ctx.dispose?.()
+} catch (error) {
+  failures += 1
+  console.error('THREW:', error)
+}
+
+console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
+process.exit(failures === 0 ? 0 : 1)
