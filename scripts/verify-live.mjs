@@ -71,7 +71,7 @@ const main = async () => {
   try {
     const version = await call('GET', '/api/session-buddy/toast/version')
     check('version route 200', version.status === 200)
-    check('version route has current 0.1.0', version.text.includes('"current":"0.1.0"'))
+    check('version route has current 0.1.1', version.text.includes('"current":"0.1.1"'))
   } catch (error) {
     check('version route (' + error.message + ')', false)
   }

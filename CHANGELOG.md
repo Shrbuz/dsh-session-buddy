@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.1 - 2026-08-23
+
+### Features
+
+- **In-app version check + self-upgrade** — the plugin settings card now shows the current version, can check the npm registry for the latest release, and upgrades this package in place through the official `dsh plugin add` CLI (restart dsh web to apply)
+
+### Fixes
+
+- Keep the ladder outline below the official settings modal — the rail, jump-to-latest button and hover tooltip now sit at z-index 900/901 (below the settings dialog at 1000) so they never cover the settings popup
+
+### Chores
+
+- Harden the toast route: 8KB request-body cap (early stream destroy) plus uniform `{ok, error:code}` JSON responses
+
 ## 0.1.0 - 2026-08-23
 
 Initial release of **dsh-session-buddy** — session notifications + in-conversation ladder outline for the DeepSeek Harness Web GUI.

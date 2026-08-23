@@ -8,4 +8,4 @@
  */
 
 /** The currently running plugin version (synced with package.json). */
-export const LIB_VERSION = '0.1.0'
+export const LIB_VERSION = '0.1.1'
