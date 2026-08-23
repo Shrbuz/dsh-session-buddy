@@ -81,7 +81,7 @@ try {
 
   // ---- Upgrade module pure helpers (version parsing / comparison / spec) ----
   check('PACKAGE_NAME is dsh-session-buddy', PACKAGE_NAME === 'dsh-session-buddy')
-  check('LIB_VERSION matches 0.1.1', LIB_VERSION === '0.1.1')
+  check('LIB_VERSION matches 0.1.2', LIB_VERSION === '0.1.2')
   check('parseVersion parses 1.2.3', JSON.stringify(parseVersion('1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion strips leading v', JSON.stringify(parseVersion('v1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion rejects garbage', parseVersion('not-a-version') === undefined)

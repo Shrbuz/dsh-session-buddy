@@ -45,6 +45,28 @@ dsh plugin --profile web add link:<this-dir>
 
 After installing, **restart** `dsh web`, then configure it under 设置 → 插件 → 插件配置 → "Session Buddy @Shrbuz".
 
+## Upgrade
+
+Two ways to upgrade to a newer version:
+
+### CLI
+
+```sh
+dsh plugin --profile web update dsh-session-buddy
+```
+
+The plugin is installed as a semver range (`^0.x.y`), so `dsh plugin update` picks up the newest compatible release. To force a specific version:
+
+```sh
+dsh plugin --profile web add dsh-session-buddy@<version>
+```
+
+### In-app
+
+Open the plugin settings card → "Version & upgrades" → "Check for updates", then click "Upgrade" when a newer version exists.
+
+After upgrading either way, **restart** `dsh web` to load the new version.
+
 ## Usage
 
 ### Notifications
@@ -55,10 +77,10 @@ After installing, **restart** `dsh web`, then configure it under 设置 → 插�
 - Hover the right-side rail to preview each question; click a rung to jump to it
 - Use the `+older` footer to page in hidden history; the jump-to-latest button scrolls to the bottom
 - Rung length and tooltip timestamps are configurable in the settings card
+- When many rungs exceed the rail height, the scrollbar is hidden and top/bottom fade shadows indicate there is more above/below; the `+older` footer stays fixed and always reachable
 
-### Check for updates
-- Open the settings card → "Version & upgrades" → "Check for updates"
-- When a newer version exists, click "Upgrade" and follow the prompt; restart dsh web to apply
+### Upgrades
+- See the **Upgrade** section above — via `dsh plugin update` or the settings card ("Version & upgrades")
 
 ## How it works
 

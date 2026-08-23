@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.2 - 2026-08-23
+
+### Fixes
+
+- Hide the ladder outline's scrollbar when many rungs exceed the rail height, replacing it with top/bottom fade shadows that show there is more above/below — no more scrollbar flicker on hover/scroll
+- Keep the "`+older`" footer outside the scrollable list so it stays fixed and always reachable (it previously scrolled out of view with many rungs)
+- Resolve the `dsh` CLI for the in-app upgrade via the npm bin directory (node + `lib/bin.js`) — previously the CLI was not found on Windows, so the upgrade button could not run
+
 ## 0.1.1 - 2026-08-23
 
 ### Features
