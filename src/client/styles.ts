@@ -60,8 +60,13 @@ export const BUDDY_CSS = `
 /* Internal scrollable rung list (dozens/hundreds of turns). The vertical
    padding gives the first/last rungs breathing room inside the scroll
    container (the hover pulse grows them; without it the top rung gets
-   clipped by overflow). */
+   clipped by overflow).
+   The scrollbar is hidden entirely — it takes ~8px of a 30px rail, shifts
+   the rungs on mount, and its appear/disappear causes the hover flicker. The
+   top/bottom fade shadows (see the -can-top / -can-bottom classes) tell the
+   user there is more above/below instead. */
 .dsb-outline-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -70,7 +75,38 @@ export const BUDDY_CSS = `
   max-height: min(60vh, 480px);
   overflow-y: auto;
   padding: 10px 0;
-  scrollbar-width: thin;
+  /* Hide the scrollbar in all engines (still scrollable via wheel/drag). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.dsb-outline-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Top/bottom fade shadows: a soft gradient from the rail background to
+   transparent, drawn INSIDE the list's edges, telling the user there are
+   more rungs above/below. They are pseudo-elements of the (position:relative)
+   list, so they stay fixed to the edges while the content scrolls underneath.
+   Only shown while that direction can actually scroll (JS sets the class). */
+.dsb-outline-list-can-top::before,
+.dsb-outline-list-can-bottom::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  pointer-events: none;
+  z-index: 2;
+}
+.dsb-outline-list-can-top::before {
+  top: 0;
+  background: linear-gradient(to bottom, var(--dsb-bg-solid), transparent);
+}
+.dsb-outline-list-can-bottom::after {
+  bottom: 0;
+  background: linear-gradient(to top, var(--dsb-bg-solid), transparent);
 }
 
 /* One ladder rung: the BUTTON is a full-width invisible hit area (so the blank

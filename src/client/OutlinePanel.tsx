@@ -77,6 +77,10 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
   const [active, setActive] = useState<string | undefined>(undefined)
   const [left, setLeft] = useState<number | undefined>(undefined)
   const [atBottom, setAtBottom] = useState(true)
+  // Whether the rung list can scroll up / down (drives the edge fade shadows
+  // that indicate more rungs above/below, since the scrollbar is hidden).
+  const [canScrollTop, setCanScrollTop] = useState(false)
+  const [canScrollBottom, setCanScrollBottom] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const railRef = useRef<HTMLElement | null>(null)
 
@@ -193,6 +197,28 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
     }
   }, [hovered, rungs])
 
+  // Scroll-direction state for the edge fade shadows: update on every list
+  // scroll and whenever the list or its content resizes (rungs mount/stream).
+  useEffect(() => {
+    const list = scrollRef.current
+    if (list === null) return
+    const EPSILON = 2
+    const update = (): void => {
+      setCanScrollTop(list.scrollTop > EPSILON)
+      setCanScrollBottom(list.scrollTop + list.clientHeight < list.scrollHeight - EPSILON)
+    }
+    update()
+    list.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(list)
+    window.addEventListener('resize', update, { passive: true })
+    return () => {
+      list.removeEventListener('scroll', update)
+      ro.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [rungs])
+
   // Position the tooltip beside the hovered rung (fixed to the viewport, so it
   // stays put while the rail itself is a fixed element). Re-read on every
   // hover and whenever the rail list scrolls (the rung may move).
@@ -252,7 +278,11 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
         aria-label={t('buddy.outline.title' as BuddyKey)}
       >
       <div
-        className="dsb-outline-list"
+        className={[
+          'dsb-outline-list',
+          canScrollTop ? 'dsb-outline-list-can-top' : '',
+          canScrollBottom ? 'dsb-outline-list-can-bottom' : '',
+        ].join(' ')}
         data-dsh-part="outline-list"
         ref={scrollRef}
         role="list"
@@ -280,19 +310,22 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
             onClick={() => { handleRungClick(rung) }}
           />
         ))}
-        {hasMore ? (
-          <button
-            type="button"
-            className="dsb-outline-footer"
-            data-dsh-part="outline-footer"
-            role="button"
-            disabled={loadingOlder}
-            onClick={() => { onLoadOlder() }}
-          >
-            {loadingOlder ? '…' : `+${t('buddy.outline.more')}`}
-          </button>
-        ) : null}
       </div>
+
+      {/* "Load older" footer: OUTSIDE the scrollable list, so it never scrolls
+          out of view and is always reachable even with many rungs. */}
+      {hasMore ? (
+        <button
+          type="button"
+          className="dsb-outline-footer"
+          data-dsh-part="outline-footer"
+          role="button"
+          disabled={loadingOlder}
+          onClick={() => { onLoadOlder() }}
+        >
+          {loadingOlder ? '…' : `+${t('buddy.outline.more')}`}
+        </button>
+      ) : null}
 
       {/* Jump-to-latest: an absolutely-positioned child of the rail, hanging
           just below it. As a child it follows the rail's position automatically
