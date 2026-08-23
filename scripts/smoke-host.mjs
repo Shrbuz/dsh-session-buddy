@@ -17,6 +17,16 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url))
 const mod = await import(pathToFileURL(join(__dirname, '..', 'lib', 'index.js')).href)
 const { makeSessionBuddySettingsSchema, SESSION_BUDDY_NAMESPACE, name } = mod
 
+// The upgrade module is bundled into lib/index.js; its exported pure helpers
+// are reachable through the same module namespace.
+const {
+  LIB_VERSION,
+  parseVersion,
+  compareVersions,
+  unsafeSpecReason,
+  PACKAGE_NAME,
+} = mod
+
 // A bare cordis Context.
 const { Context } = require('@deepseek-ai/cordis')
 
@@ -66,6 +76,21 @@ try {
     rangeRejected = true
   }
   check('outlineWidth out-of-range rejected', rangeRejected)
+
+  // ---- Upgrade module pure helpers (version parsing / comparison / spec) ----
+  check('PACKAGE_NAME is dsh-session-buddy', PACKAGE_NAME === 'dsh-session-buddy')
+  check('LIB_VERSION matches 0.1.0', LIB_VERSION === '0.1.0')
+  check('parseVersion parses 1.2.3', JSON.stringify(parseVersion('1.2.3')) === '{"major":1,"minor":2,"patch":3}')
+  check('parseVersion strips leading v', JSON.stringify(parseVersion('v1.2.3')) === '{"major":1,"minor":2,"patch":3}')
+  check('parseVersion rejects garbage', parseVersion('not-a-version') === undefined)
+  check('compareVersions older<newer', (compareVersions('0.1.0', '0.1.1') ?? 0) < 0)
+  check('compareVersions newer>older', (compareVersions('0.2.0', '0.1.9') ?? 0) > 0)
+  check('compareVersions equal', (compareVersions('1.2.3', 'v1.2.3') ?? -1) === 0)
+  check('compareVersions invalid returns undefined', compareVersions('a', 'b') === undefined)
+  check('unsafeSpecReason rejects shell metachar', unsafeSpecReason('x; rm -rf /') !== undefined)
+  check('unsafeSpecReason rejects spaces', unsafeSpecReason('a b') !== undefined)
+  check('unsafeSpecReason accepts plain name', unsafeSpecReason('dsh-session-buddy') === undefined)
+  check('unsafeSpecReason accepts name@version', unsafeSpecReason('dsh-session-buddy@1.2.3') === undefined)
 
   ctx.dispose?.()
 } catch (error) {

@@ -36,6 +36,18 @@ export declare const zh: {
     readonly 'buddy.settings.widthMedium': "中";
     readonly 'buddy.settings.widthLarge': "长";
     readonly 'buddy.settings.showTimestamps': "提示中显示时间戳";
+    readonly 'buddy.settings.version': "版本与升级";
+    readonly 'buddy.settings.versionCurrent': "当前版本 {version}";
+    readonly 'buddy.settings.versionLatest': "最新版本 {version}";
+    readonly 'buddy.settings.versionUnknown': "无法检查更新（离线或网络不可达）";
+    readonly 'buddy.settings.checkUpdate': "检查更新";
+    readonly 'buddy.settings.checking': "检查中…";
+    readonly 'buddy.settings.upToDate': "已是最新版本";
+    readonly 'buddy.settings.upgrade': "升级到 {version}";
+    readonly 'buddy.settings.upgrading': "升级中…（完成后请重启 dsh）";
+    readonly 'buddy.settings.upgradeDone': "升级完成，请重启 dsh web 生效";
+    readonly 'buddy.settings.upgradeFailed': "升级失败：{error}";
+    readonly 'buddy.settings.upgradeConfirm': "将运行 dsh plugin add {spec}，升级完成后需要重启 dsh web。是否继续？";
 };
 /** English copy. */
 export declare const en: {
@@ -66,6 +78,18 @@ export declare const en: {
     readonly 'buddy.settings.widthMedium': "Medium";
     readonly 'buddy.settings.widthLarge': "Long";
     readonly 'buddy.settings.showTimestamps': "Show timestamps in tooltips";
+    readonly 'buddy.settings.version': "Version & upgrades";
+    readonly 'buddy.settings.versionCurrent': "Current {version}";
+    readonly 'buddy.settings.versionLatest': "Latest {version}";
+    readonly 'buddy.settings.versionUnknown': "Could not check for updates (offline or unreachable)";
+    readonly 'buddy.settings.checkUpdate': "Check for updates";
+    readonly 'buddy.settings.checking': "Checking…";
+    readonly 'buddy.settings.upToDate': "Up to date";
+    readonly 'buddy.settings.upgrade': "Upgrade to {version}";
+    readonly 'buddy.settings.upgrading': "Upgrading… (restart dsh when done)";
+    readonly 'buddy.settings.upgradeDone': "Upgrade complete — restart dsh web to apply";
+    readonly 'buddy.settings.upgradeFailed': "Upgrade failed: {error}";
+    readonly 'buddy.settings.upgradeConfirm': "This runs dsh plugin add {spec}; restart dsh web after it finishes. Continue?";
 };
 /** Key union for this namespace. */
 export type BuddyKey = keyof typeof zh;

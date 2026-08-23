@@ -67,6 +67,23 @@ const main = async () => {
     check('client bundle served (' + error.message + ')', false)
   }
 
+  // 3. version route: current version served, update check fails closed.
+  try {
+    const version = await call('GET', '/api/session-buddy/toast/version')
+    check('version route 200', version.status === 200)
+    check('version route has current 0.1.0', version.text.includes('"current":"0.1.0"'))
+  } catch (error) {
+    check('version route (' + error.message + ')', false)
+  }
+
+  // 4. update status route rejects an unknown job (404) without touching profile.
+  try {
+    const status = await call('GET', '/api/session-buddy/toast/update/status?id=nope')
+    check('update status unknown job 404', status.status === 404)
+  } catch (error) {
+    check('update status (' + error.message + ')', false)
+  }
+
   console.log(failures === 0 ? '\nALL PASS' : `\n${failures} FAILURES`)
   process.exit(failures === 0 ? 0 : 1)
 }

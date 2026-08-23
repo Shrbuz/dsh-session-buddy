@@ -18,6 +18,20 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
 import { mountOnce } from './mount-once.ts'
 import { fireNativeToast } from './host/toast.ts'
+import {
+  LIB_VERSION,
+  compareVersions,
+  fetchLatestManifest,
+  parseVersion,
+  startUpgrade,
+  upgradeJobs,
+  PACKAGE_NAME,
+} from './host/upgrade.ts'
+
+// Re-export the upgrade module's pure helpers so standalone tests
+// (scripts/smoke-host.mjs) can exercise version parsing/comparison without a
+// live web runtime. These are additive, non-breaking public symbols.
+export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason } from './host/upgrade.ts'
 
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
 export const name = 'session-buddy'
@@ -85,7 +99,6 @@ export const apply = mountOnce('dsh-session-buddy', applyImpl)
 
 /** Native-toast trigger route the browser half fetches. Loopback-only. */
 export const TOAST_ROUTE = '/api/session-buddy/toast'
-
 /** Maximum accepted request body. Toasts carry only title+body text, so a
  * small cap (and an early stream destroy) is a cheap DoS hardening. */
 const MAX_BODY_BYTES = 8 * 1024
@@ -156,14 +169,20 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
 
 /** A toast-route JSON body: the browser half sets `ok`, a short machine-readable
  * `error` code on failure, and the accepted `title`/`body` echo back on success. */
-interface ToastResultBody {
+interface JsonBody {
   ok: boolean
   error?: string
   title?: string
   body?: string
+  name?: string
+  current?: string
+  latest?: string
+  updateAvailable?: boolean
+  jobId?: string
+  job?: unknown
 }
 
-function writeJson(response: ServerResponse, status: number, body: ToastResultBody): void {
+function writeJson(response: ServerResponse, status: number, body: JsonBody): void {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   response.end(JSON.stringify(body))
 }
@@ -224,17 +243,101 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
       writeJson(response, 200, { ok: true, title, body: text })
     },
   }
+
+  // GET /api/session-buddy/version — current + latest (when checkable). The
+  // registry read is fail-closed: any network/parse failure returns
+  // latest:undefined and the card simply shows "current only".
+  const versionRoute: WebRoute = {
+    kind: 'exact',
+    path: `${TOAST_ROUTE}/version`,
+    handler: async (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      const manifest = await fetchLatestManifest()
+      const latest = typeof manifest?.version === 'string' ? manifest.version : undefined
+      writeJson(response, 200, {
+        ok: true,
+        name: PACKAGE_NAME,
+        current: LIB_VERSION,
+        latest,
+        updateAvailable: latest !== undefined
+          ? (compareVersions(latest, LIB_VERSION) ?? 0) > 0
+          : false,
+      })
+    },
+  }
+
+  // POST /api/session-buddy/update — start an in-place upgrade to a target
+  // version via the official dsh CLI; returns a job id the browser polls.
+  const updateRoute: WebRoute = {
+    kind: 'exact',
+    path: `${TOAST_ROUTE}/update`,
+    handler: async (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'POST') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      const body = await readJsonBody(request)
+      const version = typeof body?.version === 'string' ? body.version : undefined
+      if (version === undefined || parseVersion(version) === undefined) {
+        writeJson(response, 400, { ok: false, error: 'invalid-version' })
+        return
+      }
+      const started = startUpgrade(version)
+      if (started.error !== undefined) {
+        writeJson(response, 400, { ok: false, error: started.error })
+        return
+      }
+      writeJson(response, 200, { ok: true, jobId: started.jobId })
+    },
+  }
+
+  // GET /api/session-buddy/update/status — poll an in-flight upgrade job.
+  const statusRoute: WebRoute = {
+    kind: 'exact',
+    path: `${TOAST_ROUTE}/update/status`,
+    handler: async (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      const url = new URL(request.url ?? '', 'http://localhost')
+      const id = url.searchParams.get('id')
+      const job = id !== null ? upgradeJobs.get(id) : undefined
+      if (job === undefined) {
+        writeJson(response, 404, { ok: false, error: 'job-not-found' })
+        return
+      }
+      writeJson(response, 200, { ok: true, job })
+    },
+  }
+
   ctx.effect(() => {
-    // Register the route once the `webServer` service is available. The apply
+    // Register the routes once the `webServer` service is available. The apply
     // order of host plugins is not guaranteed (webServer may still be starting
     // when this plugin applies), so poll briefly instead of assuming; a throw
-    // here must never fail the boot — if the service never appears the route is
+    // here must never fail the boot — if the service never appears the routes are
     // simply skipped (notifications degrade to the in-page marker only).
+    const routes = [toastRoute, versionRoute, updateRoute, statusRoute]
     const tryRegister = (): boolean => {
       try {
         const server = (ctx as unknown as { webServer?: { register(route: WebRoute): () => void } }).webServer
         if (server === undefined || typeof server.register !== 'function') return false
-        server.register(toastRoute)
+        for (const route of routes) server.register(route)
         return true
       } catch {
         return false
@@ -247,5 +350,5 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
       if (tryRegister() || tries >= 120) clearInterval(timer)
     }, 500)
     return () => { clearInterval(timer) }
-  }, 'session-buddy: toast route')
+  }, 'session-buddy: toast + upgrade routes')
 }

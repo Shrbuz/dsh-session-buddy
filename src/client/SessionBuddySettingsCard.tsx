@@ -11,6 +11,7 @@ import { useSyncExternalStore, useState, type ReactElement } from 'react'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SessionBuddyUiSettings } from './settings.ts'
 import { DEFAULT_UI_SETTINGS } from './settings.ts'
+import { checkVersion, pollUpgrade, startUpgrade, type VersionResponse } from './upgrade.ts'
 
 /** Props of the session-buddy settings card (injected through the slot entry). */
 export interface SessionBuddySettingsCardProps {
@@ -88,8 +89,48 @@ export function SessionBuddySettingsCard(props: SessionBuddySettingsCardProps): 
   const value = snapshot.value ?? DEFAULT_UI_SETTINGS
 
   const [open, setOpen] = useState(false)
+  const [versionInfo, setVersionInfo] = useState<VersionResponse | undefined>(undefined)
+  const [checking, setChecking] = useState(false)
+  const [upgrading, setUpgrading] = useState(false)
+  const [upgradeError, setUpgradeError] = useState<string | undefined>(undefined)
+  const [upgradeDone, setUpgradeDone] = useState(false)
 
   const set = (key: keyof SessionBuddyUiSettings, next: unknown): void => { void scope.set(key, next) }
+
+  /** Check for a newer version through the host; fail-closed. */
+  const handleCheckUpdate = async (): Promise<void> => {
+    setChecking(true)
+    setUpgradeError(undefined)
+    setUpgradeDone(false)
+    const info = await checkVersion()
+    setVersionInfo(info)
+    setChecking(false)
+  }
+
+  /** Start an upgrade to the latest version; poll until it settles. */
+  const handleUpgrade = async (): Promise<void> => {
+    if (versionInfo?.latest === undefined) return
+    const spec = `dsh-session-buddy@${versionInfo.latest}`
+    if (!window.confirm(buddyT('buddy.settings.upgradeConfirm').replace('{spec}', spec))) return
+    setUpgrading(true)
+    setUpgradeError(undefined)
+    setUpgradeDone(false)
+    const jobId = await startUpgrade(versionInfo.latest)
+    if (jobId === undefined) {
+      setUpgradeError(buddyT('buddy.settings.versionUnknown'))
+      setUpgrading(false)
+      return
+    }
+    const job = await pollUpgrade(jobId)
+    setUpgrading(false)
+    if (job === undefined) {
+      setUpgradeError(buddyT('buddy.settings.versionUnknown'))
+    } else if (job.phase === 'error') {
+      setUpgradeError(job.error ?? buddyT('buddy.settings.upgradeFailed'))
+    } else {
+      setUpgradeDone(true)
+    }
+  }
 
   return (
     <li className={open ? 'dsb-settings-card dsb-settings-card-open' : 'dsb-settings-card'} data-dsh-part="session-buddy-settings-card">
@@ -166,6 +207,61 @@ export function SessionBuddySettingsCard(props: SessionBuddySettingsCardProps): 
             checked={value.showTimestamps}
             onChange={(next) => { set('showTimestamps', next) }}
           />
+
+          <div className="dsb-settings-group-label">{buddyT('buddy.settings.version')}</div>
+          <div className="dsb-settings-field">
+            <span className="dsb-settings-label">
+              {buddyT('buddy.settings.versionCurrent').replace('{version}', versionInfo?.current ?? '0.1.0')}
+            </span>
+          </div>
+          {versionInfo?.latest !== undefined ? (
+            <div className="dsb-settings-field">
+              <span className="dsb-settings-label">
+                {buddyT('buddy.settings.versionLatest').replace('{version}', versionInfo.latest)}
+              </span>
+            </div>
+          ) : null}
+          {versionInfo !== undefined && versionInfo.latest !== undefined && versionInfo.updateAvailable === false ? (
+            <div className="dsb-settings-field">
+              <span className="dsb-settings-label">{buddyT('buddy.settings.upToDate')}</span>
+            </div>
+          ) : null}
+          {upgradeError !== undefined ? (
+            <div className="dsb-settings-field">
+              <span className="dsb-settings-label">
+                {buddyT('buddy.settings.upgradeFailed').replace('{error}', upgradeError)}
+              </span>
+            </div>
+          ) : null}
+          {upgradeDone ? (
+            <div className="dsb-settings-field">
+              <span className="dsb-settings-label">{buddyT('buddy.settings.upgradeDone')}</span>
+            </div>
+          ) : null}
+          <div className="dsb-settings-field">
+            <button
+              type="button"
+              className="dsb-settings-seg-btn dsb-settings-seg-active"
+              data-dsh-part="buddy-check-update"
+              disabled={checking || upgrading}
+              onClick={() => { void handleCheckUpdate() }}
+            >
+              {checking ? buddyT('buddy.settings.checking') : buddyT('buddy.settings.checkUpdate')}
+            </button>
+            {versionInfo?.updateAvailable === true && versionInfo.latest !== undefined ? (
+              <button
+                type="button"
+                className="dsb-settings-seg-btn dsb-settings-seg-active"
+                data-dsh-part="buddy-upgrade"
+                disabled={checking || upgrading}
+                onClick={() => { void handleUpgrade() }}
+              >
+                {upgrading
+                  ? buddyT('buddy.settings.upgrading')
+                  : buddyT('buddy.settings.upgrade').replace('{version}', versionInfo.latest)}
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </li>
