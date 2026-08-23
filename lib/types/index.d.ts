@@ -10,7 +10,7 @@
  */
 import { Context } from '@deepseek-ai/cordis';
 import z from 'schemastery';
-export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason } from './host/upgrade.ts';
+export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason, findDshBinary, resolveLaunch, runDshCli } from './host/upgrade.ts';
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
 export declare const name = "session-buddy";
 /**

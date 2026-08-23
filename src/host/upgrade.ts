@@ -107,26 +107,60 @@ export interface UpgradeJob {
 export interface DshLaunch {
   command: string
   argsPrefix: string[]
+  /** Spawn through a shell. Only true when we had to fall back to running a
+   * `.cmd` shim directly (Windows), which requires cmd.exe. */
+  shell?: boolean
 }
 
-/** Locate the `dsh` CLI. Prefers an absolute path we can spawn directly;
- * falls back to a bare name (resolved via the OS). On Windows the .cmd shim is
- * later expanded through node + bin.js (see {@link resolveLaunch}). */
+/** The npm-global bin directory for the current user, e.g.
+ * `C:\Users\<user>\AppData\Roaming\npm` on Windows / `<prefix>/bin` on POSIX.
+ * This is where `dsh`/`dsh.cmd` shims live when installed via npm globally.
+ *
+ * IMPORTANT: `npm_config_prefix` (set by `npm run`) ALREADY IS the full npm
+ * global dir (`...\Roaming\npm`) — do NOT append `npm` to it. `APPDATA` is the
+ * parent (`...\Roaming`), so only that one needs the `npm` suffix appended. */
+function npmBinDir(env: NodeJS.ProcessEnv = process.env): string {
+  const prefix = env.npm_config_prefix
+  if (typeof prefix === 'string' && prefix.length > 0) {
+    return prefix
+  }
+  const appdata = env.APPDATA
+  if (typeof appdata === 'string' && appdata.length > 0) {
+    return process.platform === 'win32'
+      ? join(appdata, 'npm')
+      : join(appdata, 'bin')
+  }
+  return ''
+}
+
+/** Locate the `dsh` CLI shim (or executable). Prefers the npm-global bin dir
+ * (where a global `dsh` install actually puts `dsh.cmd` on Windows); falls
+ * back to a bare name resolved by the OS. Returns an absolute path when
+ * possible so {@link resolveLaunch} can expand it deterministically. */
 export function findDshBinary(env: NodeJS.ProcessEnv = process.env): string | null {
-  void env // keep the seam signature; PATH is resolved by the OS spawn.
-  const candidates = [
-    'dsh',
+  const binDir = npmBinDir(env)
+  const candidates: string[] = []
+  if (binDir !== '') {
+    candidates.push(join(binDir, process.platform === 'win32' ? 'dsh.cmd' : 'dsh'))
+  }
+  candidates.push(
     join(dirname(process.execPath), 'dsh'),
     join(dirname(process.execPath), 'dsh.cmd'),
-  ]
+    'dsh',
+  )
   for (const candidate of candidates) {
     if ((candidate.includes('\\') || candidate.includes('/')) && existsSync(candidate)) return candidate
   }
+  // Nothing found on disk — return the bare name and let resolveLaunch spawn it
+  // (POSIX resolves via PATH; Windows fails fast with a clear error).
   return 'dsh'
 }
 
-/** The dsh CLI's npm bin script (matches the `dsh` entry in @deepseek-ai/dsh). */
-const DSH_BIN_JS = join(dirname(process.execPath), 'node_modules', '@deepseek-ai', 'dsh', 'bin', 'dsh.mjs')
+/** The dsh CLI's bin script path, relative to the npm bin dir that holds the
+ * `dsh.cmd` shim. Mirrors what the shim itself executes. */
+function binScriptFor(binDir: string): string {
+  return join(binDir, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js')
+}
 
 /**
  * Resolve a launch command for the CLI. On Windows a `.cmd` shim is a batch
@@ -136,12 +170,17 @@ const DSH_BIN_JS = join(dirname(process.execPath), 'node_modules', '@deepseek-ai
  */
 export function resolveLaunch(binary: string, platform: NodeJS.Platform = process.platform): DshLaunch {
   if (platform === 'win32' && (binary === 'dsh' || binary.endsWith('.cmd'))) {
-    // Resolve the .cmd shim → node + bin script when the bin script exists.
-    if (existsSync(DSH_BIN_JS)) {
-      return { command: process.execPath, argsPrefix: [DSH_BIN_JS] }
+    // Resolve the .cmd shim → node + the CLI's real bin script.
+    const binDir = binary.endsWith('.cmd')
+      ? dirname(binary)
+      : npmBinDir()
+    const binScript = binDir !== '' ? binScriptFor(binDir) : ''
+    if (binScript !== '' && existsSync(binScript)) {
+      return { command: process.execPath, argsPrefix: [binScript] }
     }
-    // Fall back to the system node on PATH with the same bin script.
-    return { command: 'node', argsPrefix: [DSH_BIN_JS] }
+    // Fall back to spawning the .cmd through cmd.exe (cmd handles the shim
+    // quoting itself); still no user-injected shell — args pass as argv.
+    return { command: binary, argsPrefix: [], shell: true }
   }
   return { command: binary, argsPrefix: [] }
 }
@@ -162,10 +201,11 @@ export function runDshCli(
     const child = spawnImpl(launch.command, [...launch.argsPrefix, ...args], {
       env: process.env,
       windowsHide: true,
-      // No shell: argv is passed directly, so there is no quoting/injection
-      // surface. Node + bin.js (Windows) and the plain executable (POSIX) both
-      // spawn without a shell.
-      shell: false,
+      // No shell by default: argv is passed directly, so there is no
+      // quoting/injection surface. Node + bin.js (Windows) and the plain
+      // executable (POSIX) both spawn without a shell. The .cmd fallback opts
+      // into a shell because batch shims require cmd.exe.
+      shell: launch.shell === true,
     })
     let output = ''
     child.stdout?.on('data', (chunk: Buffer) => { output += chunk.toString() })

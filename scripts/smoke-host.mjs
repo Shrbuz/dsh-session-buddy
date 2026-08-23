@@ -25,6 +25,8 @@ const {
   compareVersions,
   unsafeSpecReason,
   PACKAGE_NAME,
+  findDshBinary,
+  resolveLaunch,
 } = mod
 
 // A bare cordis Context.
@@ -91,6 +93,23 @@ try {
   check('unsafeSpecReason rejects spaces', unsafeSpecReason('a b') !== undefined)
   check('unsafeSpecReason accepts plain name', unsafeSpecReason('dsh-session-buddy') === undefined)
   check('unsafeSpecReason accepts name@version', unsafeSpecReason('dsh-session-buddy@1.2.3') === undefined)
+
+  // ---- dsh CLI launch resolution (no execution — parsing only) ----
+  check('findDshBinary returns non-empty', (findDshBinary() ?? '').length > 0)
+  // Windows: the resolved launch must run node + the real bin script, never
+  // shell out to a bare "dsh" (which Windows cannot spawn directly).
+  if (process.platform === 'win32') {
+    const binary = findDshBinary()
+    const launch = resolveLaunch(binary)
+    check('win32 launch.command is node', launch.command === process.execPath)
+    check('win32 launch.argsPrefix points at dsh lib/bin.js',
+      launch.argsPrefix.length === 1 && launch.argsPrefix[0].endsWith('lib\\bin.js'))
+  } else {
+    const binary = findDshBinary()
+    const launch = resolveLaunch(binary)
+    check('posix launch.command non-empty', launch.command.length > 0)
+    check('posix launch shell false', launch.shell !== true)
+  }
 
   ctx.dispose?.()
 } catch (error) {

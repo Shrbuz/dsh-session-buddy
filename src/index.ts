@@ -31,7 +31,7 @@ import {
 // Re-export the upgrade module's pure helpers so standalone tests
 // (scripts/smoke-host.mjs) can exercise version parsing/comparison without a
 // live web runtime. These are additive, non-breaking public symbols.
-export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason } from './host/upgrade.ts'
+export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason, findDshBinary, resolveLaunch, runDshCli } from './host/upgrade.ts'
 
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
 export const name = 'session-buddy'

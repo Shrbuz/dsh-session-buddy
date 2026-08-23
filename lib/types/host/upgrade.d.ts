@@ -53,10 +53,14 @@ export interface UpgradeJob {
 export interface DshLaunch {
     command: string;
     argsPrefix: string[];
+    /** Spawn through a shell. Only true when we had to fall back to running a
+     * `.cmd` shim directly (Windows), which requires cmd.exe. */
+    shell?: boolean;
 }
-/** Locate the `dsh` CLI. Prefers an absolute path we can spawn directly;
- * falls back to a bare name (resolved via the OS). On Windows the .cmd shim is
- * later expanded through node + bin.js (see {@link resolveLaunch}). */
+/** Locate the `dsh` CLI shim (or executable). Prefers the npm-global bin dir
+ * (where a global `dsh` install actually puts `dsh.cmd` on Windows); falls
+ * back to a bare name resolved by the OS. Returns an absolute path when
+ * possible so {@link resolveLaunch} can expand it deterministically. */
 export declare function findDshBinary(env?: NodeJS.ProcessEnv): string | null;
 /**
  * Resolve a launch command for the CLI. On Windows a `.cmd` shim is a batch
