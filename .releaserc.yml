@@ -1,0 +1,34 @@
+# Release configuration for dsh-session-buddy
+# (managed by the release-skills workflow)
+
+version:
+  file: package.json
+  path: $.version
+
+changelog:
+  files:
+    - path: CHANGELOG.md
+      lang: en
+    - path: CHANGELOG.zh.md
+      lang: zh
+
+  sections:
+    feat: Features
+    fix: Fixes
+    docs: Documentation
+    refactor: Refactor
+    perf: Performance
+    test: Tests
+    chore: null
+
+commit:
+  message: "chore: release v{version}"
+
+tag:
+  prefix: v
+  sign: false
+
+include:
+  - README.md
+  - README.zh.md
+  - package.json

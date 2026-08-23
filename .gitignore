@@ -10,11 +10,17 @@ node_modules/
 # npm pack output
 *.tgz
 
+# npm local cache (used when publishing from the sandbox)
+.npm-cache/
+
 # local-only release checklist (not tracked)
 RELEASE.md
 
 # internal requirements/design notes (not tracked — not part of the published repo)
 dsh-session-buddy-REQUIREMENTS.md
+
+# TypeScript incremental build info (machine-local cache)
+lib/tsconfig.tsbuildinfo
 
 # git-manager skill local config (may hold credentials)
 .cqy-skills-setting/
