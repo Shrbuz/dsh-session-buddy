@@ -11,6 +11,9 @@
 import { Context } from '@deepseek-ai/cordis';
 import z from 'schemastery';
 export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason, findDshBinary, resolveLaunch, runDshCli } from './host/upgrade.ts';
+export { BuddySseHub, BuddyMonitor, assistantSummary, ASK_TOOL_NAME, type BuddyTrigger, type BuddyTriggerKind } from './host/events.ts';
+export { tryClaimNotification, LEDGER_FILE, LEDGER_DIR } from './host/ledger.ts';
+export { decodeSessionRows, detectCorruption, detectCorruptionInLog } from './host/session-delete.ts';
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
 export declare const name = "session-buddy";
 /**
@@ -75,5 +78,7 @@ export declare function makeSessionBuddySettingsSchema(): z<Schemastery.ObjectS<
 export declare const apply: typeof applyImpl;
 /** Native-toast trigger route the browser half fetches. Loopback-only. */
 export declare const TOAST_ROUTE = "/api/session-buddy/toast";
+/** SSE route that relays event-driven notification triggers to every tab. */
+export declare const EVENTS_ROUTE = "/api/session-buddy/events";
 declare function applyImpl(ctx: Context, config?: SessionBuddyConfig): void;
 //# sourceMappingURL=index.d.ts.map

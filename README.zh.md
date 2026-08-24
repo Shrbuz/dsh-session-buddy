@@ -14,6 +14,7 @@
   - `ask`：AI 明确向你提问（ask_user 工具）——普通回复结束不会误报
   - `confirm`：有待确认的命令审批（审批对话框）
 - 回复完成时只要**这轮回复期间你离开过页面**就提醒；全程看着则不打扰
+- **宿主事件驱动 + 跨标签页**：触发点来自会话事件日志（回合完成 = reply、ask_user 工具 = ask、审批请求 = confirm），经 SSE 推送给所有打开的标签页；每条事件**最多弹一次**系统 toast——已通知台账在 toast 路由处做跨标签页/跨刷新去重；SSE 断连时回退到前端 DOM 观察
 - **系统原生 toast**（Windows PowerShell WinRT / macOS osascript / Linux notify-send，无需浏览器权限、不受 Chrome 横幅压制）+ 红点 favicon 与 `(●)` 标题标记 + 可选提示音
 - 通知标题为「工作区 · 会话标题」；每轮回复只提醒一次
 
@@ -28,6 +29,11 @@
 ### 应用内升级
 - 设置卡片显示当前版本，可检查 npm 官方源上的最新版本
 - 一键通过官方 `dsh plugin add` CLI 升级（完成后需重启 dsh web 生效）
+
+### 会话清理
+- **损坏会话**（历史无法通过 dsh 自身的加载校验，例如某条 `tool/result` 被写入空工具调用 id、dsh 读不回来）会在会话行显示一个**警告小标识**
+- 会话行的三点菜单新增「**删除会话**」：确认后该会话数据被**永久删除、释放磁盘**——dsh 本身只有分叉/归档（归档不删文件）
+- 当前正在打开的会话不显示删除项，host 侧也会拒绝删除 live 会话
 
 ## 安装
 
@@ -86,15 +92,18 @@ dsh plugin --profile web add dsh-session-buddy@<版本号>
 
 | 层 | 实现 |
 |---|---|
-| 通知 | 前端 DOM 观察（`MutationObserver` + 官方锚点 + composer 停止按钮运行信号判定"回复真正完成"）+ `visibilitychange` 重建；宿主通过 loopback-only 的 `/api/session-buddy/toast` 路由弹系统原生 toast |
+| 通知 | 宿主监听会话事件日志，把 reply/ask/confirm 触发经 SSE（`/api/session-buddy/events`）推送给每个标签页；已通知台账在 loopback-only 的 `/api/session-buddy/toast` 路由处做跨标签页/跨刷新去重（每条事件最多一个系统 toast）。SSE 断连时回退到前端 DOM 观察（`MutationObserver` + 官方锚点 + composer 停止按钮运行信号） |
 | 目录 | 梯级来自官方 `sessions` 服务快照（与渲染的 DOM 无关）；dsh 会话历史是分页窗口，目录按需翻入被隐藏的历史，并通过官方锚点 key 与 DOM 对齐 |
 | 升级 | 宿主读取 `https://registry.npmjs.org/dsh-session-buddy/latest`（离线时静默失败），实际升级由官方 `dsh plugin` CLI 执行 |
+| 会话清理 | 宿主经 `sessionPersistence` 列会话、复刻 dsh 自身的加载期消息校验来标记损坏，删除时通过持久化服务 `locate()` 解析会话目录（不信任用户输入路径）；前端标记损坏行并注入菜单删除项 |
 
 界面主题自适应，全部使用官方 `--dsw-alias-*` 设计令牌。
 
 ## 限制
 
 - 系统原生 toast 依赖系统通知设置；红点 favicon / 标题标记始终作为并行兜底
+- 「每条事件最多一次系统 toast」的去重只作用于宿主事件驱动链路；该链路不可用时（旧宿主、或 SSE 断连）回退的 DOM 监听仍按标签页各自通知，同一事件下多个隐藏标签页可能各弹一次 toast
+- 会话删除是**永久**操作（无回收站）；「删除会话」只在能识别出会话菜单 DOM 时注入，识别不到会静默降级
 - 升级需要重启 `dsh web` 后生效
 
 ## 开发

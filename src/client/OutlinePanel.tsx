@@ -181,10 +181,6 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
     sp.scrollTo({ top: sp.scrollHeight, behavior: 'smooth' })
   }
 
-  if (empty) {
-    return <div className="dsb-outline dsb-outline-empty" data-dsh-part="outline-empty" />
-  }
-
   // Keep the hovered rung in view as the list scrolls.
   useEffect(() => {
     if (hovered === null || scrollRef.current === null) return
@@ -257,6 +253,12 @@ export function OutlinePanel(props: OutlinePanelProps): ReactElement {
     list.addEventListener('scroll', onScroll, { passive: true })
     return () => { list.removeEventListener('scroll', onScroll) }
   }, [hovered, rungs])
+
+  // All hooks above are called unconditionally; the empty state returns AFTER
+  // them so the hook count never changes between renders (React rules of hooks).
+  if (empty) {
+    return <div className="dsb-outline dsb-outline-empty" data-dsh-part="outline-empty" />
+  }
 
   const handleRungClick = (rung: SourceRung): void => {
     // If the anchor is not in the DOM, it is outside the loaded window —

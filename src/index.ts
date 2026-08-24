@@ -18,6 +18,9 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import z from 'schemastery'
 import { mountOnce } from './mount-once.ts'
 import { fireNativeToast } from './host/toast.ts'
+import { BuddySseHub, createEventMonitor } from './host/events.ts'
+import { tryClaimNotification } from './host/ledger.ts'
+import { deleteSession, listSessions } from './host/session-delete.ts'
 import {
   LIB_VERSION,
   compareVersions,
@@ -32,6 +35,12 @@ import {
 // (scripts/smoke-host.mjs) can exercise version parsing/comparison without a
 // live web runtime. These are additive, non-breaking public symbols.
 export { LIB_VERSION, PACKAGE_NAME, parseVersion, compareVersions, unsafeSpecReason, findDshBinary, resolveLaunch, runDshCli } from './host/upgrade.ts'
+
+// Re-export the event-driven trigger monitor + the notified-ledger claim so
+// standalone tests can drive them without a live web runtime.
+export { BuddySseHub, BuddyMonitor, assistantSummary, ASK_TOOL_NAME, type BuddyTrigger, type BuddyTriggerKind } from './host/events.ts'
+export { tryClaimNotification, LEDGER_FILE, LEDGER_DIR } from './host/ledger.ts'
+export { decodeSessionRows, detectCorruption, detectCorruptionInLog } from './host/session-delete.ts'
 
 /** Stable cordis plugin name (matches cordis.patch.yml insert id). */
 export const name = 'session-buddy'
@@ -99,6 +108,8 @@ export const apply = mountOnce('dsh-session-buddy', applyImpl)
 
 /** Native-toast trigger route the browser half fetches. Loopback-only. */
 export const TOAST_ROUTE = '/api/session-buddy/toast'
+/** SSE route that relays event-driven notification triggers to every tab. */
+export const EVENTS_ROUTE = '/api/session-buddy/events'
 /** Maximum accepted request body. Toasts carry only title+body text, so a
  * small cap (and an early stream destroy) is a cheap DoS hardening. */
 const MAX_BODY_BYTES = 8 * 1024
@@ -180,6 +191,15 @@ interface JsonBody {
   updateAvailable?: boolean
   jobId?: string
   job?: unknown
+  /** Session health listing (GET /api/session-buddy/sessions). */
+  sessions?: unknown
+  /** Delete-result details (POST /api/session-buddy/sessions/delete). */
+  id?: string
+  path?: string
+  files?: number
+  bytes?: number
+  /** Set on toast success when a claim key was supplied (dedup active). */
+  claimed?: boolean
 }
 
 function writeJson(response: ServerResponse, status: number, body: JsonBody): void {
@@ -212,6 +232,18 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
     },
   )
 
+  // Event-driven notification triggers: the host watches the session event log
+  // and relays reply/ask/confirm over SSE (EVENTS_ROUTE) so EVERY open tab can
+  // notify authoritatively — no more relying on one tab's DOM observation. The
+  // browser decides when to actually notify; cross-tab dedup lives in the
+  // toast-route claim ledger below.
+  const hub = new BuddySseHub()
+  const stopMonitor = createEventMonitor(ctx, hub)
+  ctx.effect(() => () => {
+    try { stopMonitor() } catch { /* teardown must not throw */ }
+    hub.dispose()
+  }, 'session-buddy: event monitor + sse hub')
+
   // Native-toast route: the browser half POSTs {title, body} here when a
   // notification fires while the tab is hidden; the host then pops a real OS
   // toast (PowerShell WinRT / notify-send) with no browser permission needed.
@@ -239,8 +271,95 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
       }
       const title = typeof body.title === 'string' && body.title !== '' ? body.title : 'dsh-session-buddy'
       const text = typeof body.body === 'string' ? body.body : ''
+      // Cross-tab / cross-reload dedup: the browser sends a stable claim key
+      // (session + turn/episode + kind). The first tab to claim this episode
+      // fires the OS toast; any other tab gets 409 and stays silent — so a
+      // single reply never pops N toasts with several tabs open, and a reload
+      // can't re-fire an already-notified event. Missing/empty key = no dedup.
+      const claimKey = typeof body.claimKey === 'string' ? body.claimKey : ''
+      if (claimKey !== '' && !tryClaimNotification(claimKey)) {
+        writeJson(response, 409, { ok: false, error: 'already-notified', claimed: true })
+        return
+      }
       fireNativeToast({ title, body: text })
-      writeJson(response, 200, { ok: true, title, body: text })
+      writeJson(response, 200, { ok: true, title, body: text, claimed: true })
+    },
+  }
+
+  // SSE: event-driven notification triggers (reply/ask/confirm) relayed to
+  // every open tab. Loopback-only like the toast route; the browser subscribes
+  // and decides when to notify (hidden gate + per-kind switches + claim).
+  const eventsRoute: WebRoute = {
+    kind: 'exact',
+    path: EVENTS_ROUTE,
+    handler: (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      hub.handle(request, response)
+    },
+  }
+
+  // GET /api/session-buddy/sessions — session health listing: id + corrupt
+  // flag (replicating dsh's own load validation) so the browser can mark
+  // "cannot load history — deletable" sessions. Loopback-only.
+  const sessionsRoute: WebRoute = {
+    kind: 'exact',
+    path: '/api/session-buddy/sessions',
+    handler: async (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'GET') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      try {
+        const sessions = await listSessions(ctx)
+        writeJson(response, 200, { ok: true, sessions })
+      } catch (e) {
+        writeJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
+    },
+  }
+
+  // POST /api/session-buddy/sessions/delete — permanently delete one session's
+  // on-disk data (frees disk space). Loopback-only; refuses live sessions and
+  // unknown ids. Destructive — the browser shows a confirmation first.
+  const sessionsDeleteRoute: WebRoute = {
+    kind: 'exact',
+    path: '/api/session-buddy/sessions/delete',
+    handler: async (request, response) => {
+      if (!isLoopbackRequest(request)) {
+        writeJson(response, 403, { ok: false, error: 'forbidden-loopback-only' })
+        return
+      }
+      if (request.method !== 'POST') {
+        writeJson(response, 405, { ok: false, error: `method-not-allowed:${request.method}` })
+        return
+      }
+      const body = await readJsonBody(request)
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : ''
+      if (sessionId === '' || !/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+        writeJson(response, 400, { ok: false, error: 'invalid-session-id' })
+        return
+      }
+      try {
+        const result = await deleteSession(ctx, sessionId)
+        if (!result.ok) {
+          writeJson(response, result.error === 'session-live' ? 409 : 404, { ok: false, error: result.error })
+          return
+        }
+        writeJson(response, 200, { ok: true, id: result.id, path: result.path, files: result.files, bytes: result.bytes })
+      } catch (e) {
+        writeJson(response, 500, { ok: false, error: e instanceof Error ? e.message : String(e) })
+      }
     },
   }
 
@@ -332,7 +451,7 @@ function applyImpl(ctx: Context, config: SessionBuddyConfig = {}): void {
     // when this plugin applies), so poll briefly instead of assuming; a throw
     // here must never fail the boot — if the service never appears the routes are
     // simply skipped (notifications degrade to the in-page marker only).
-    const routes = [toastRoute, versionRoute, updateRoute, statusRoute]
+    const routes = [toastRoute, versionRoute, updateRoute, statusRoute, eventsRoute, sessionsRoute, sessionsDeleteRoute]
     const tryRegister = (): boolean => {
       try {
         const server = (ctx as unknown as { webServer?: { register(route: WebRoute): () => void } }).webServer

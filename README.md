@@ -14,6 +14,7 @@ Session notifications + an in-conversation ladder outline for the **DeepSeek Har
   - `ask`: the AI explicitly asks you a question (ask-user tool) — a plain finished reply does NOT re-fire
   - `confirm`: a command approval is pending (approval dialog)
 - A reply notifies when you were **away at any point during that turn**; stays silent while you watch it
+- **Host-driven + cross-tab**: triggers come from the session event log (reply on a completed turn, ask on the ask-user tool, confirm on an approval request) relayed over SSE to every open tab, and each event pops **at most one OS toast** — a notified ledger claims it once across tabs and reloads; DOM observation is the fallback while the stream is down
 - **Native OS toast** (Windows PowerShell WinRT / macOS osascript / Linux notify-send) — no browser permission, not suppressed by Chrome — plus a red-dot favicon & `(●)` title badge, and an optional sound
 - Title is "workspace · session title"; one notification per reply
 
@@ -28,6 +29,11 @@ Session notifications + an in-conversation ladder outline for the **DeepSeek Har
 ### In-app upgrades
 - The settings card shows the current version and can check the npm registry for the latest release
 - One-click upgrade through the official `dsh plugin add` CLI (restart dsh web to apply)
+
+### Session cleanup
+- Corrupt sessions — whose history fails the harness's own load validation (e.g. a `tool/result` persisted with an empty tool call id, which dsh refuses to read back) — are marked with a small warning badge on the session row
+- The session row's three-dot menu gains a **"删除会话"** item: confirm, and the session's data is permanently deleted from disk (frees space) — dsh itself only offers fork/archive (archive keeps the files)
+- Deleting is hidden for the currently open session, and the host refuses to delete a live session
 
 ## Install
 
@@ -86,15 +92,18 @@ After upgrading either way, **restart** `dsh web` to load the new version.
 
 | Layer | Implementation |
 |---|---|
-| Notifications | Client-side DOM observation (`MutationObserver` + official anchors + the composer stop-button running signal to decide when a reply is truly done) + a `visibilitychange` rebuild; the host fires the native OS toast through a loopback-only `/api/session-buddy/toast` route |
+| Notifications | Host watches the session event log and relays reply/ask/confirm triggers over SSE (`/api/session-buddy/events`) to every tab; a notified ledger claimed at the loopback-only `/api/session-buddy/toast` route dedupes across tabs and reloads (one OS toast per event). Client-side DOM observation (`MutationObserver` + official anchors + the composer stop-button running signal) is the fallback while the stream is down |
 | Outline | Rungs come from the official `sessions` service snapshot (independent of how much DOM is rendered); dsh conversation history is a paged window, so the outline pages hidden history in on demand and aligns rungs to the DOM via the official anchor keys |
 | Upgrades | The host reads `https://registry.npmjs.org/dsh-session-buddy/latest` (fail-closed when offline) and runs the official `dsh plugin` CLI for the actual upgrade |
+| Session cleanup | The host lists sessions via `sessionPersistence`, flags corruption by replicating the harness's own load-time message validation, and deletes a session's directory (resolved through the persistence service's `locate()`, never from user input); the browser marks corrupt rows and injects the delete item into the row menu |
 
 The UI is theme-aware and styled entirely with the official `--dsw-alias-*` design tokens.
 
 ## Limitations
 
 - Native toasts depend on the OS notification settings; the favicon/title badge always works as a parallel cue
+- The "one OS toast per event" dedup applies to the host-driven stream; while that stream is down (older host, or a connection failure) the DOM fallback notifies per tab, so several hidden tabs could each pop a toast for the same event
+- Session deletion is **permanent** (no recycle bin); the "删除会话" item is only injected into the session menu while the menu DOM is recognizable, and degrades silently otherwise
 - An upgrade takes effect only after restarting `dsh web`
 
 ## Development

@@ -9,6 +9,9 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createRequire } from 'node:module'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { zstdCompressSync } from 'node:zlib'
 
 const require = createRequire(import.meta.url)
 const __dirname = fileURLToPath(new URL('.', import.meta.url))
@@ -27,6 +30,12 @@ const {
   PACKAGE_NAME,
   findDshBinary,
   resolveLaunch,
+  BuddyMonitor,
+  assistantSummary,
+  tryClaimNotification,
+  decodeSessionRows,
+  detectCorruption,
+  detectCorruptionInLog,
 } = mod
 
 // A bare cordis Context.
@@ -81,7 +90,7 @@ try {
 
   // ---- Upgrade module pure helpers (version parsing / comparison / spec) ----
   check('PACKAGE_NAME is dsh-session-buddy', PACKAGE_NAME === 'dsh-session-buddy')
-  check('LIB_VERSION matches 0.1.2', LIB_VERSION === '0.1.2')
+  check('LIB_VERSION matches 0.2.0', LIB_VERSION === '0.2.0')
   check('parseVersion parses 1.2.3', JSON.stringify(parseVersion('1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion strips leading v', JSON.stringify(parseVersion('v1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion rejects garbage', parseVersion('not-a-version') === undefined)
@@ -110,6 +119,83 @@ try {
     check('posix launch.command non-empty', launch.command.length > 0)
     check('posix launch shell false', launch.shell !== true)
   }
+
+  // ---- Event-driven trigger monitor (BuddyMonitor) ----
+  // reply: turn/start → assistant/message(text) → turn/end(completed)
+  const emitted = []
+  const monitor = new BuddyMonitor((trigger) => emitted.push(trigger))
+  monitor.ingest({ id: 'sess-1', header: { cwd: 'C:\\ws' } }, { type: 'turn/start', time: 1000, data: { turn: 1 } })
+  const mid = monitor.ingest({ id: 'sess-1', header: { cwd: 'C:\\ws' } }, {
+    type: 'assistant/message', time: 1100,
+    data: { turn: 1, step: 0, message: { content: [{ type: 'text', text: '  完成了 工作 ' }, { type: 'reasoning', text: 'hidden' }] } },
+  })
+  check('assistant/message derives no trigger', mid === null)
+  const reply = monitor.ingest({ id: 'sess-1', header: { cwd: 'C:\\ws' } }, { type: 'turn/end', time: 1200, data: { turn: 1, reason: { kind: 'completed' } } })
+  check('turn/end completed derives reply', reply !== null && reply.kind === 'reply')
+  check('reply carries session/workspace/turn', reply.sessionId === 'sess-1' && reply.workspace === 'C:\\ws' && reply.turn === 1)
+  check('reply carries turnStartedAt from turn/start', reply.turnStartedAt === 1000)
+  check('reply summary is text blocks only', reply.summary === '完成了 工作')
+  check('reply dedupKey is turn-scoped', reply.dedupKey === 'turn:1')
+  check('monitor relayed reply to emitter', emitted.length === 1 && emitted[0].kind === 'reply')
+
+  // non-completed turn endings never derive a reply
+  const aborted = monitor.ingest({ id: 'sess-2', header: {} }, { type: 'turn/end', time: 1300, data: { turn: 1, reason: { kind: 'aborted' } } })
+  check('aborted turn derives nothing', aborted === null)
+
+  // ask: the model calls the ask-user tool
+  const ask = monitor.ingest({ id: 'sess-3', header: {} }, { type: 'tool/call', time: 2000, data: { turn: 1, step: 0, callId: 'call-abc', name: 'ask_user_question', arguments: '{}' } })
+  check('tool/call ask_user_question derives ask', ask !== null && ask.kind === 'ask' && ask.dedupKey === 'call-abc')
+
+  // confirm: an approval request was raised
+  const confirm = monitor.ingest({ id: 'sess-4', header: {} }, { type: 'approval/asked', time: 2100, data: { id: 'apr-1', toolName: 'pwsh' } })
+  check('approval/asked derives confirm', confirm !== null && confirm.kind === 'confirm' && confirm.dedupKey === 'apr-1')
+
+  // subagent sessions are ignored (their turns belong to a parent session)
+  const sub = monitor.ingest({ id: 'sess-5', header: { origin: 'subagent' } }, { type: 'turn/end', time: 2200, data: { turn: 1, reason: { kind: 'completed' } } })
+  check('subagent session ignored', sub === null)
+
+  // unknown / malformed events are ignored without throwing
+  const unknown = monitor.ingest({ id: 'sess-6', header: {} }, { type: 'whatever', time: 2300, data: {} })
+  check('unknown event type ignored', unknown === null)
+  check('assistantSummary skips reasoning blocks', assistantSummary({ content: [{ type: 'text', text: 'a' }, { type: 'reasoning', text: 'b' }] }) === 'a')
+
+  // ---- Notified-ledger claim (cross-tab dedup) ----
+  const ledDir = mkdtempSync(join(tmpdir(), 'dsb-ledger-'))
+  const ledFile = join(ledDir, 'notified.json')
+  check('first claim wins', tryClaimNotification('sess-1:turn:1:reply', ledFile) === true)
+  check('second claim of same episode loses', tryClaimNotification('sess-1:turn:1:reply', ledFile) === false)
+  check('different episode wins', tryClaimNotification('sess-1:turn:2:reply', ledFile) === true)
+  check('empty claimKey always allowed', tryClaimNotification('', ledFile) === true)
+
+  // ---- Session corruption detection (replicates dsh load validation) ----
+  const toolResult = (callId) => ({
+    type: 'tool/result', seq: 116, time: 1,
+    data: { turn: 1, step: 1, message: { role: 'user', id: 'm-1', source: { kind: 'tool', callId }, content: [{ type: 'tool-result', toolCallId: callId, content: [{ type: 'text', text: 'ok' }] }] } },
+  })
+  const assistantMessage = (src) => ({
+    type: 'assistant/message', seq: 114, time: 1,
+    data: { turn: 1, step: 1, message: { role: 'assistant', id: 'm-2', source: src, content: [{ type: 'text', text: 'hi' }] } },
+  })
+  const packed = { type: 'reasoning-chunks', seq0: 21, time0: 1, data: {} }
+  check('valid tool/result is not corrupt', detectCorruption([toolResult('call-1')]).corrupt === false)
+  const emptyCall = detectCorruption([toolResult('')])
+  check('empty callId tool/result is corrupt', emptyCall.corrupt === true && /tool source/.test(emptyCall.reason ?? ''))
+  const mismatch = {
+    ...toolResult('a'),
+    data: { ...toolResult('a').data, message: { ...toolResult('a').data.message, content: [{ ...toolResult('a').data.message.content[0], toolCallId: 'b' }] } },
+  }
+  check('tool/result mismatched toolCallId is corrupt', detectCorruption([mismatch]).corrupt === true)
+  check('assistant/message missing model source is corrupt', detectCorruption([assistantMessage({ kind: 'model' })]).corrupt === true)
+  check('assistant/message with model source passes', detectCorruption([assistantMessage({ kind: 'model', provider: 'p', model: 'm' })]).corrupt === false)
+  check('packed storage rows are skipped (not corrupt)', detectCorruption([packed, toolResult('call-1')]).corrupt === false)
+  check('envelope violation is corrupt', detectCorruption([{ type: 'tool/result', time: 1, data: {} }]).corrupt === true)
+
+  // Round-trip through the zstd frame encoding the persistence uses.
+  const encode = (rows) => zstdCompressSync(Buffer.from(rows.map((r) => JSON.stringify(r)).join('\n') + '\n'))
+  const header = { type: 'session', version: 0, id: 'session-x', createdAt: 1, delegationDepth: 0 }
+  check('decodeSessionRows round-trips a zstd frame', decodeSessionRows(encode([header, toolResult('call-1')])).rows.length === 2)
+  check('detectCorruptionInLog clean log passes', detectCorruptionInLog(encode([header, toolResult('call-1')])).corrupt === false)
+  check('detectCorruptionInLog bad log flagged', detectCorruptionInLog(encode([toolResult('')])).corrupt === true)
 
   ctx.dispose?.()
 } catch (error) {

@@ -27,6 +27,8 @@ import { startSessionListener } from './listener.ts'
 import { notify } from './notifier.ts'
 import { anchorRowByKey } from './dom.ts'
 import { createSessionSource, alignRungKeys, type SourceRung } from './session-source.ts'
+import { startBuddyEventStream, wasHiddenSince, type BuddyTriggerEvent } from './sse.ts'
+import { startSessionDeleteManager } from './session-delete.ts'
 import type { SessionEvent, TriggerKind } from './events.ts'
 
 /** Required services (slots + settingsScope drive the settings card; sessions
@@ -207,6 +209,52 @@ export function apply(ctx: ClientContext): void {
   // (master switch) and forward events only when the relevant trigger switch
   // is on.
   let listenerDispose: (() => void) | undefined
+  let sseDispose: (() => void) | undefined
+  let sessionDeleteDispose: (() => void) | undefined
+  /** True while the host event stream is connected — then it is the ONLY
+   *  notifier (DOM observation is gated) so a reply never double-fires from
+   *  two sources in the same tab. While the stream is down the DOM listener
+   *  takes over as the fallback. */
+  let sseConnected = false
+
+  /** The session id currently open in the GUI (the one the user is looking
+   *  at). Host events for other sessions are ignored — same as the DOM path,
+   *  which only ever watches the open session. */
+  const currentSessionId = (): string | undefined => {
+    try {
+      const list = (ctx.sessions as unknown as ISessions)?.list?.getSnapshot()
+      return list?.current
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Shared notification dispatch for BOTH the DOM classifier and the host
+   *  event stream: honors the per-kind switch, composes title/body, and hands
+   *  off to notifier with an optional cross-tab claim key. */
+  const dispatch = (event: SessionEvent, claimKey?: string): void => {
+    const current = settingsScope.getSnapshot().value
+    if (current === undefined || !current.enabled) return
+    if (!current[switchOf(event.kind)]) return
+    const sessionTitle = event.title ?? t('buddy.notify.title')
+    const workspace = currentWorkspaceName(ctx.sessions as unknown as ISessions)
+    const title = workspace !== undefined && workspace !== sessionTitle
+      ? `${workspace} · ${sessionTitle}`
+      : sessionTitle
+    const summary = event.summary === '' ? '' : event.summary ?? ''
+    const body = `${t(TRIGGER_TEXT[event.kind])}${summary === '' ? '' : ' · ' + summary}`.trim()
+    void notify({
+      title,
+      body,
+      sound: current.sound,
+      tag: event.kind,
+      claimKey,
+      anchorKey: event.anchorKey,
+      onClick: (key) => { if (key !== undefined) scrollToKey(key) },
+      forceHidden: event.kind === 'reply' && event.wasHidden === true,
+    })
+  }
+
   const syncEnabled = (): void => {
     const settings = settingsScope.getSnapshot().value
     const enabled = settings?.enabled ?? true
@@ -218,25 +266,59 @@ export function apply(ctx: ClientContext): void {
       listenerDispose = startSessionListener({
         readPendingInteraction: () => readPendingInteraction(ctx.sessions as unknown as ISessions),
         onEvent: (event: SessionEvent) => {
+          // While the host event stream is up it is authoritative (cross-tab,
+          // claim-deduped). The DOM classifier keeps running so its dedupe
+          // state stays current, but we only dispatch through it when the
+          // stream is down — otherwise one reply would fire twice.
+          if (sseConnected) return
+          dispatch(event)
+        },
+      })
+    }
+
+    // Host-driven event stream (reply/ask/confirm over SSE). Primary notifier;
+    // falls back to DOM observation while disconnected.
+    if (sseDispose === undefined) {
+      sseDispose = startBuddyEventStream({
+        onStatus: (connected) => { sseConnected = connected },
+        onTrigger: (trigger: BuddyTriggerEvent) => {
           const current = settingsScope.getSnapshot().value
           if (current === undefined || !current.enabled) return
-          if (!current[switchOf(event.kind)]) return
-          const sessionTitle = event.title ?? t('buddy.notify.title')
-          const workspace = currentWorkspaceName(ctx.sessions as unknown as ISessions)
-          const title = workspace !== undefined && workspace !== sessionTitle
-            ? `${workspace} · ${sessionTitle}`
-            : sessionTitle
-          const summary = event.summary === '' ? '' : event.summary ?? ''
-          const body = `${t(TRIGGER_TEXT[event.kind])}${summary === '' ? '' : ' · ' + summary}`.trim()
-          notify({
-            title,
-            body,
-            sound: current.sound,
-            tag: event.kind,
-            anchorKey: event.anchorKey,
-            onClick: (key) => { if (key !== undefined) scrollToKey(key) },
-            forceHidden: event.kind === 'reply' && event.wasHidden === true,
-          })
+          // Only the open session notifies (matches the DOM path's scope).
+          if (trigger.sessionId !== currentSessionId()) return
+          dispatch(
+            {
+              kind: trigger.kind,
+              summary: trigger.summary ?? '',
+              title: undefined,
+              // Host tells us when the reply's turn started; reconstruct
+              // "the user stepped away during this reply" from the tab's own
+              // visibility history. Unknown start time → fall back to the
+              // plain hidden-tab gate (no surprise toast).
+              wasHidden: trigger.kind === 'reply' && trigger.turnStartedAt !== undefined
+                ? wasHiddenSince(trigger.turnStartedAt)
+                : false,
+            },
+            // Cross-tab dedup key: session + host-assigned episode id + kind.
+            `${trigger.sessionId}:${trigger.dedupKey}:${trigger.kind}`,
+          )
+        },
+      })
+    }
+
+    // Session health: mark corrupt (unloadable) sessions and inject the
+    // "删除会话" item into the session row's three-dot menu so you can cleanly
+    // delete a corrupt session's data (frees disk space).
+    if (sessionDeleteDispose === undefined) {
+      sessionDeleteDispose = startSessionDeleteManager({
+        currentSessionId,
+        // After a delete, ask the dsh session service to re-list from the host
+        // so the removed session's row disappears without a manual refresh.
+        refreshSessions: () => {
+          try {
+            const sessions = ctx.sessions as unknown as { refresh?: () => unknown }
+            if (typeof sessions.refresh === 'function') sessions.refresh()
+          } catch { /* best-effort */ }
         },
       })
     }
@@ -259,6 +341,8 @@ export function apply(ctx: ClientContext): void {
     settingsUnsubscribe()
     domObserver.disconnect()
     listenerDispose?.()
+    sseDispose?.()
+    sessionDeleteDispose?.()
     unmountOutline()
   }, 'session-buddy: ui')
 }

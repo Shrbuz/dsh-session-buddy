@@ -7,5 +7,5 @@
  * @module dsh-session-buddy/version
  */
 /** The currently running plugin version (synced with package.json). */
-export declare const LIB_VERSION = "0.1.2";
+export declare const LIB_VERSION = "0.2.0";
 //# sourceMappingURL=version.d.ts.map

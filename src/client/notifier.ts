@@ -62,15 +62,21 @@ function playBeep(): void {
   }
 }
 
-/** Fire-and-forget native OS toast through the host route. Best-effort. */
-function sendNativeToast(title: string, body: string): boolean {
+/** Fire-and-forget native OS toast through the host route. Resolves true when
+ *  the host fired the toast — i.e. this tab won the cross-tab claim (or no
+ *  claim key was supplied) — and false when another tab already notified this
+ *  episode (host answers 409) or the host was unreachable. Best-effort. */
+async function sendNativeToast(title: string, body: string, claimKey?: string): Promise<boolean> {
   try {
-    void fetch(TOAST_ROUTE, {
+    const payload = claimKey !== undefined && claimKey !== ''
+      ? { title, body, claimKey }
+      : { title, body }
+    const response = await fetch(TOAST_ROUTE, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, body }),
-    }).catch(() => { /* host unreachable — best-effort */ })
-    return true
+      body: JSON.stringify(payload),
+    })
+    return response.ok
   } catch {
     return false
   }
@@ -152,6 +158,9 @@ export interface NotifyOptions {
    * away during the reply (`wasHidden`): they want the toast even if the settle
    * instant happens to land on a brief switch-back. */
   forceHidden?: boolean
+  /** Stable cross-tab dedup key (session + turn/episode + kind). The host
+   * atomically claims it: only the first tab to claim fires the OS toast. */
+  claimKey?: string
   /** Anchor key to scroll to when clicked (native toasts don't carry a click
    *  handler; kept for forward compatibility). */
   anchorKey?: string
@@ -161,10 +170,11 @@ export interface NotifyOptions {
 
 /**
  * Deliver one notification (respecting the hidden-tab gate): native OS toast
- * via the host + red-dot/title marker + optional rate-limited beep. Returns
- * whether the native toast was dispatched.
+ * via the host + red-dot/title marker + (only when this tab wins the claim)
+ * optional rate-limited beep. Resolves true when the native toast was
+ * dispatched; false when gated by visibility or already claimed elsewhere.
  */
-export function notify(options: NotifyOptions): boolean {
+export async function notify(options: NotifyOptions): Promise<boolean> {
   // Hidden-tab gate: don't notify while the user is actively looking. A reply
   // whose user stepped away during it (`forceHidden`) fires regardless — they
   // were away for the reply, so a brief switch-back at the settle instant must
@@ -172,14 +182,17 @@ export function notify(options: NotifyOptions): boolean {
   if (!document.hidden && options.forceHidden !== true) return false
 
   // Native OS toast — the reliable channel (no browser permission needed).
-  const native = sendNativeToast(options.title, options.body)
+  // The claim key makes the host dedup across tabs/reloads.
+  const native = await sendNativeToast(options.title, options.body, options.claimKey)
 
   // Cross-tab marker: even when the OS banner is unavailable, the dsh tab gets
   // a red-dot favicon + title badge so the event is visible across the tab
   // strip / taskbar.
   applyMarker()
 
-  if (options.sound) playBeep()
+  // Only the tab that actually fired the toast beeps — otherwise several open
+  // tabs would machine-gun the sound for a single event.
+  if (native && options.sound) playBeep()
 
   return native
 }

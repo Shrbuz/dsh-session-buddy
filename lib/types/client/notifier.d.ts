@@ -30,6 +30,9 @@ export interface NotifyOptions {
      * away during the reply (`wasHidden`): they want the toast even if the settle
      * instant happens to land on a brief switch-back. */
     forceHidden?: boolean;
+    /** Stable cross-tab dedup key (session + turn/episode + kind). The host
+     * atomically claims it: only the first tab to claim fires the OS toast. */
+    claimKey?: string;
     /** Anchor key to scroll to when clicked (native toasts don't carry a click
      *  handler; kept for forward compatibility). */
     anchorKey?: string;
@@ -38,8 +41,9 @@ export interface NotifyOptions {
 }
 /**
  * Deliver one notification (respecting the hidden-tab gate): native OS toast
- * via the host + red-dot/title marker + optional rate-limited beep. Returns
- * whether the native toast was dispatched.
+ * via the host + red-dot/title marker + (only when this tab wins the claim)
+ * optional rate-limited beep. Resolves true when the native toast was
+ * dispatched; false when gated by visibility or already claimed elsewhere.
  */
-export declare function notify(options: NotifyOptions): boolean;
+export declare function notify(options: NotifyOptions): Promise<boolean>;
 //# sourceMappingURL=notifier.d.ts.map
