@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.2.0 - 2026-08-24
+
+### Features
+
+- **Host event-driven notifications** — triggers now come from the session event log (reply on a completed turn, ask on the ask-user tool, confirm on an approval request), relayed over SSE to every open tab; DOM observation remains the fallback while the stream is down
+- **One OS toast per event** — a notified ledger claims each event atomically across tabs and reloads, so a single reply never pops N toasts with several tabs open, and a reload can't re-fire an already-notified event
+- **Session cleanup** — sessions whose history fails the harness's own load validation (e.g. a `tool/result` persisted with an empty tool-call id, which dsh refuses to read back) get a warning badge; the session row's three-dot menu gains a "删除会话" item that permanently deletes the session's on-disk data (frees space) after confirmation. Deleting is hidden for the currently open session and the host refuses to delete a live session
+
+### Fixes
+
+- Keep the outline panel's hook count stable between renders (React rules of hooks) — the empty-state early return used to sit before several `useEffect` calls, which could throw a "Rendered more hooks than during the previous render" console error when the list flipped between empty and non-empty
+- Only the tab that actually fires the OS toast beeps, so several hidden tabs no longer machine-gun the sound for a single event
+
+### Tests
+
+- Extend the host smoke suite: event-monitor derive (reply/ask/confirm, subagent and unknown events ignored), notified-ledger claim (TTL + dedup), and session-corruption detection (empty call id, callId mismatch, packed rows skipped, zstd round-trip)
+
 ## 0.1.2 - 2026-08-23
 
 ### Fixes

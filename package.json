@@ -1,7 +1,7 @@
 {
   "name": "dsh-session-buddy",
   "description": "Session buddy for the dsh web GUI: notify you when the AI finishes replying, needs your answer, or asks for command approval while the tab is hidden, and provide an in-conversation ladder outline (question index) for quick navigation",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "author": {
