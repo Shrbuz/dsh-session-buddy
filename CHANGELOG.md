@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.3.0 - 2026-08-24
+
+### Features
+
+- **Fold the working transcript into one "共 N 次思考" row** — after a turn finishes, its repeated `Think` reasoning blocks AND the interleaved text "小结" rows (the one-line progress notes between think blocks and tool calls) are merged into a single clickable count bar (mirroring the existing tool-run bar). The turn's LAST assistant-step row — its final summary — stays visible (only its think block folds), so the actual closing reply is always on screen. Clicking the bar expands everything again; since each think block is itself a one-line collapsible summary, expanding yields a browsable list of per-think summaries
+- **Context injections fold along with the thinks** — harness "context injection" rows that interleave between a turn's think blocks (e.g. tool-job payloads, system-prompt / skill-catalog injections) carry no turn number of their own, so they fold into whichever turn's window they fall inside, together with the thinks
+- **Independent setting** — a new "折叠思考块" switch in the settings card (default on) controls think folding separately from tool folding; a turn only folds when it rendered ≥ 2 thinks
+- **Fold over-long user questions** — a question whose text runs past 6 lines (e.g. a whole log pasted into the prompt) is clamped to those first lines with a soft bottom fade and an "展开全文" bar underneath; click to expand the full text (or collapse again). Short questions are never touched. A separate "折叠长提问" switch (default on) controls this, and each question's expand/collapse state is remembered per session
+
+### Fixes
+
+- **Ladder outline now ALWAYS follows the conversation width** — the rail previously repositioned only when a ResizeObserver on the scrollport happened to fire, so expanding the right sidebar sometimes left the rail stuck at the screen's right edge. Positioning is now re-read on every animation frame (plus ResizeObserver on the scrollport and all its ancestors, plus window resize), so the rail moves with the conversation whenever the sidebar squeezes it — deterministically, not sometimes
+
+### Tests
+
+- Extend the host smoke suite with `groupThinkRuns` pure-function cases: multi-think turn folding, single-think stays unfolded, context rows fold with their turn's thinks, per-turn separation, multi-think rows, and text-only "小结" rows being tracked while the final summary row stays fold-exempt
+
 ## 0.2.0 - 2026-08-24
 
 ### Features

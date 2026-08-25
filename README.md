@@ -25,6 +25,7 @@ Session notifications + an in-conversation ladder outline for the **DeepSeek Har
 - Scrollspy highlights the current turn; a jump-to-latest button appears when you are not at the bottom
 - Older history is paged in on demand via the "`+older`" footer
 - Hidden automatically when the session has fewer than two turns
+- The rail **anchors to the conversation's right edge and follows it** whenever a sidebar expands/shrinks the conversation (event-driven, zero idle cost)
 
 ### In-app upgrades
 - The settings card shows the current version and can check the npm registry for the latest release
@@ -34,6 +35,16 @@ Session notifications + an in-conversation ladder outline for the **DeepSeek Har
 - Corrupt sessions — whose history fails the harness's own load validation (e.g. a `tool/result` persisted with an empty tool call id, which dsh refuses to read back) — are marked with a small warning badge on the session row
 - The session row's three-dot menu gains a **"删除会话"** item: confirm, and the session's data is permanently deleted from disk (frees space) — dsh itself only offers fork/archive (archive keeps the files)
 - Deleting is hidden for the currently open session, and the host refuses to delete a live session
+
+### Tool-run collapsing
+- After each turn finishes, the tool calls that turn executed (Pwsh / Think / Write / Grep / Edit / Read …) are folded into a single **"共执行 X 步操作"** row, so the closing summary is directly visible
+- Click the row to expand the individual tool cards again (state is remembered per session)
+- A turn is only folded once it has actually ended (a running turn stays fully visible); switch it off in the settings card to always show every tool call
+
+### Transcript folding
+- **Fold think blocks + process notes** — after a turn finishes, its repeated `Think` reasoning blocks, the interleaved text "小结" notes, and any context injections between them merge into one **"共 N 次思考"** row (the turn's final summary stays visible); click to expand them again
+- **Fold over-long questions** — a question whose text runs past 6 lines (e.g. a whole log pasted into the prompt) is clamped to those first lines with a soft bottom fade and an **"展开全文"** bar; click to expand the full text
+- Each folding surface has its own switch in the settings card (折叠工具操作 / 折叠思考块 / 折叠长提问), and expand/collapse state is remembered per session
 
 ## Install
 
@@ -96,6 +107,9 @@ After upgrading either way, **restart** `dsh web` to load the new version.
 | Outline | Rungs come from the official `sessions` service snapshot (independent of how much DOM is rendered); dsh conversation history is a paged window, so the outline pages hidden history in on demand and aligns rungs to the DOM via the official anchor keys |
 | Upgrades | The host reads `https://registry.npmjs.org/dsh-session-buddy/latest` (fail-closed when offline) and runs the official `dsh plugin` CLI for the actual upgrade |
 | Session cleanup | The host lists sessions via `sessionPersistence`, flags corruption by replicating the harness's own load-time message validation, and deletes a session's directory (resolved through the persistence service's `locate()`, never from user input); the browser marks corrupt rows and injects the delete item into the row menu |
+| Tool-run collapsing | Pure client DOM pass over the official anchor rows: `tool-call` rows are grouped by their enclosing `turn-tail` row (the tail is only published after `turn/end`, so folding happens exactly when the turn is finished), each group collapses to a "共执行 X 步操作" chip with per-session expand state |
+| Transcript folding | The same official-markers pass groups a turn's `assistant-step` rows (think blocks + text "小结" + context injections) by its `turn-tail` row into a "共 N 次思考" chip, leaving the final summary visible; over-long `user` rows are clamped to 6 lines with an expand bar. Both silently degrade if the official markers vanish |
+| Outline positioning | The rail re-reads the conversation scrollport's right edge on resize, on container/ancestor resize, and on DOM mutations (coalesced to one pass per frame), so it always moves with the conversation width |
 
 The UI is theme-aware and styled entirely with the official `--dsw-alias-*` design tokens.
 
@@ -104,6 +118,7 @@ The UI is theme-aware and styled entirely with the official `--dsw-alias-*` desi
 - Native toasts depend on the OS notification settings; the favicon/title badge always works as a parallel cue
 - The "one OS toast per event" dedup applies to the host-driven stream; while that stream is down (older host, or a connection failure) the DOM fallback notifies per tab, so several hidden tabs could each pop a toast for the same event
 - Session deletion is **permanent** (no recycle bin); the "删除会话" item is only injected into the session menu while the menu DOM is recognizable, and degrades silently otherwise
+- All folding surfaces rely on the official `data-chat-flow-kind` / `data-chat-anchor-key` markers (question clamping additionally on the `_text_` class); if a future dsh version drops them, the plugin silently stops folding (it never hides rows it cannot confidently attribute to a finished turn)
 - An upgrade takes effect only after restarting `dsh web`
 
 ## Development

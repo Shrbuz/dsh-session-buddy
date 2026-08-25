@@ -68,6 +68,107 @@ try {
   check('outlineWidth default 18', parsed.outlineWidth === 18)
   check('showTimestamps default true', parsed.showTimestamps === true)
 
+  // The client-side collapse grouping is pure and node-importable via the
+  // tsc-emitted ESM (lib/types/client/collapse-tools.js). The client bundle is
+  // a CJS closure (window.__ModuleLoader__), so these pure helpers are tested
+  // from the type-emit instead.
+  const collapse = await import(pathToFileURL(join(__dirname, '..', 'lib', 'types', 'client', 'collapse-tools.js')).href)
+  const { parseTurnFromKey, groupToolRuns, groupThinkRuns } = collapse
+  check('parseTurnFromKey reads 9:turn-tail1', parseTurnFromKey('9:turn-tail1') === 1)
+  check('parseTurnFromKey reads 9:turn-tail123', parseTurnFromKey('9:turn-tail123') === 123)
+  check('parseTurnFromKey rejects tool-call key', parseTurnFromKey('9:tool-callabc') === null)
+  check('parseTurnFromKey rejects garbage', parseTurnFromKey('nope') === null)
+  check('groupToolRuns counts one turn', JSON.stringify(
+    groupToolRuns([
+      { key: '9:tool-callpwsh1', kind: 'tool-call' },
+      { key: '9:tool-callread2', kind: 'tool-call' },
+      { key: '9:turn-tail1', kind: 'turn-tail' },
+    ]),
+  ) === JSON.stringify([{ turn: 1, steps: 2, toolRowIndexes: [0, 1] }]))
+  check('groupToolRuns separates turns by tail', JSON.stringify(
+    groupToolRuns([
+      { key: '9:tool-callw', kind: 'tool-call' },
+      { key: '9:turn-tail1', kind: 'turn-tail' },
+      { key: '9:tool-callg', kind: 'tool-call' },
+      { key: '9:turn-tail2', kind: 'turn-tail' },
+    ]),
+  ) === JSON.stringify([
+    { turn: 1, steps: 1, toolRowIndexes: [0] },
+    { turn: 2, steps: 1, toolRowIndexes: [2] },
+  ]))
+  check('groupToolRuns skips running turn (no tail yet)', JSON.stringify(
+    groupToolRuns([
+      { key: '9:tool-callw', kind: 'tool-call' },
+    ]),
+  ) === JSON.stringify([]))
+  check('groupToolRuns ignores non-tool rows', JSON.stringify(
+    groupToolRuns([
+      { key: '9:user', kind: 'user' },
+      { key: '9:tool-callx', kind: 'tool-call' },
+      { key: '9:assistant-step1', kind: 'assistant-step' },
+      { key: '9:turn-tail1', kind: 'turn-tail' },
+    ]),
+  ) === JSON.stringify([{ turn: 1, steps: 1, toolRowIndexes: [1] }]))
+
+  // Think grouping: ≥2 thinks per turn → one group; single think stays as-is;
+  // context rows fold into whatever turn's window they fall inside; text-only
+  // "小结" assistant-step rows fold too, but the LAST assistant-step row (final
+  // summary) stays visible.
+  const thinkRow = (kind, thinkCount = 0, isContext = false) => ({ key: `k:${kind}-${thinkCount}`, kind, thinkCount, isContext })
+  const turnTail = (turn) => ({ key: `9:turn-tail${turn}`, kind: 'turn-tail', thinkCount: 0, isContext: false })
+  check('groupThinkRuns folds a multi-think turn', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('user'),
+      thinkRow('assistant-step', 1),
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+    ]),
+  ) === JSON.stringify([{ turn: 1, thinks: 2, stepIndexes: [1, 2], finalStepIndex: 2, contextIndexes: [] }]))
+  check('groupThinkRuns folds a single think into nothing', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+    ]),
+  ) === JSON.stringify([]))
+  check('groupThinkRuns folds context rows with the thinks', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 1),
+      thinkRow('context', 0, true),
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+    ]),
+  ) === JSON.stringify([{ turn: 1, thinks: 2, stepIndexes: [0, 2], finalStepIndex: 2, contextIndexes: [1] }]))
+  check('groupThinkRuns separates turns by tail', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 1),
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+      thinkRow('assistant-step', 1),
+      turnTail(2),
+    ]),
+  ) === JSON.stringify([{ turn: 1, thinks: 2, stepIndexes: [0, 1], finalStepIndex: 1, contextIndexes: [] }]))
+  check('groupThinkRuns counts multiple thinks per row', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 2),
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+    ]),
+  ) === JSON.stringify([{ turn: 1, thinks: 3, stepIndexes: [0, 1], finalStepIndex: 1, contextIndexes: [] }]))
+  check('groupThinkRuns tracks text-only 小结 rows', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 1),
+      thinkRow('assistant-step', 0),
+      thinkRow('assistant-step', 1),
+      turnTail(1),
+    ]),
+  ) === JSON.stringify([{ turn: 1, thinks: 2, stepIndexes: [0, 1, 2], finalStepIndex: 2, contextIndexes: [] }]))
+  check('groupThinkRuns skips running turn (no tail yet)', JSON.stringify(
+    groupThinkRuns([
+      thinkRow('assistant-step', 1),
+      thinkRow('assistant-step', 1),
+    ]),
+  ) === JSON.stringify([]))
+
   // Schema clamps / overrides.
   const overridden = schema({
     enabled: false,
@@ -90,7 +191,7 @@ try {
 
   // ---- Upgrade module pure helpers (version parsing / comparison / spec) ----
   check('PACKAGE_NAME is dsh-session-buddy', PACKAGE_NAME === 'dsh-session-buddy')
-  check('LIB_VERSION matches 0.2.0', LIB_VERSION === '0.2.0')
+  check('LIB_VERSION matches 0.3.0', LIB_VERSION === '0.3.0')
   check('parseVersion parses 1.2.3', JSON.stringify(parseVersion('1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion strips leading v', JSON.stringify(parseVersion('v1.2.3')) === '{"major":1,"minor":2,"patch":3}')
   check('parseVersion rejects garbage', parseVersion('not-a-version') === undefined)

@@ -208,6 +208,41 @@ export function SessionBuddySettingsCard(props: SessionBuddySettingsCardProps): 
             onChange={(next) => { set('showTimestamps', next) }}
           />
 
+          <div className="dsb-settings-group-label">{buddyT('buddy.settings.view')}</div>
+          <Toggle
+            dataPart="buddy-setting-collapseTools"
+            label={buddyT('buddy.settings.collapseTools')}
+            checked={value.collapseTools}
+            onChange={(next) => { set('collapseTools', next) }}
+          />
+          <div className="dsb-settings-field">
+            <span className="dsb-settings-label dsb-settings-label-desc">
+              {buddyT('buddy.settings.collapseToolsDesc')}
+            </span>
+          </div>
+          <Toggle
+            dataPart="buddy-setting-foldThink"
+            label={buddyT('buddy.settings.foldThink')}
+            checked={value.foldThink}
+            onChange={(next) => { set('foldThink', next) }}
+          />
+          <div className="dsb-settings-field">
+            <span className="dsb-settings-label dsb-settings-label-desc">
+              {buddyT('buddy.settings.foldThinkDesc')}
+            </span>
+          </div>
+          <Toggle
+            dataPart="buddy-setting-foldLongUser"
+            label={buddyT('buddy.settings.foldLongUser')}
+            checked={value.foldLongUser}
+            onChange={(next) => { set('foldLongUser', next) }}
+          />
+          <div className="dsb-settings-field">
+            <span className="dsb-settings-label dsb-settings-label-desc">
+              {buddyT('buddy.settings.foldLongUserDesc')}
+            </span>
+          </div>
+
           <div className="dsb-settings-group-label">{buddyT('buddy.settings.version')}</div>
           <div className="dsb-settings-field">
             <span className="dsb-settings-label">

@@ -23,6 +23,12 @@ export interface SessionBuddyUiSettings {
     outlineWidth: number;
     /** Show per-rung timestamps in the tooltip. */
     showTimestamps: boolean;
+    /** Fold each completed turn's tool calls into one count row. */
+    collapseTools: boolean;
+    /** Fold each completed turn's think blocks (+ context rows) into one count row. */
+    foldThink: boolean;
+    /** Fold over-long user questions to a few lines (expandable). */
+    foldLongUser: boolean;
 }
 /** The scope spec the client binds against the `session-buddy` namespace. */
 export declare const sessionBuddySettingsSpec: SettingsScopeSpec<SessionBuddyUiSettings>;

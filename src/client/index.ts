@@ -29,6 +29,7 @@ import { anchorRowByKey } from './dom.ts'
 import { createSessionSource, alignRungKeys, type SourceRung } from './session-source.ts'
 import { startBuddyEventStream, wasHiddenSince, type BuddyTriggerEvent } from './sse.ts'
 import { startSessionDeleteManager } from './session-delete.ts'
+import { startCollapseTools } from './collapse-tools.ts'
 import type { SessionEvent, TriggerKind } from './events.ts'
 
 /** Required services (slots + settingsScope drive the settings card; sessions
@@ -211,6 +212,7 @@ export function apply(ctx: ClientContext): void {
   let listenerDispose: (() => void) | undefined
   let sseDispose: (() => void) | undefined
   let sessionDeleteDispose: (() => void) | undefined
+  let collapseDispose: (() => void) | undefined
   /** True while the host event stream is connected — then it is the ONLY
    *  notifier (DOM observation is gated) so a reply never double-fires from
    *  two sources in the same tab. While the stream is down the DOM listener
@@ -322,6 +324,28 @@ export function apply(ctx: ClientContext): void {
         },
       })
     }
+
+    // Collapse each completed turn's tool calls into one count row, and its
+    // think blocks (+ context injections) into another. Read live from the
+    // settings scope.
+    if (collapseDispose === undefined) {
+      collapseDispose = startCollapseTools({
+        isEnabled: () => {
+          const current = settingsScope.getSnapshot().value
+          return current?.enabled !== false && current?.collapseTools !== false
+        },
+        isThinkEnabled: () => {
+          const current = settingsScope.getSnapshot().value
+          return current?.enabled !== false && current?.foldThink !== false
+        },
+        isLongUserEnabled: () => {
+          const current = settingsScope.getSnapshot().value
+          return current?.enabled !== false && current?.foldLongUser !== false
+        },
+        t,
+        currentSessionId,
+      })
+    }
   }
 
   const syncAll = (): void => {
@@ -343,6 +367,7 @@ export function apply(ctx: ClientContext): void {
     listenerDispose?.()
     sseDispose?.()
     sessionDeleteDispose?.()
+    collapseDispose?.()
     unmountOutline()
   }, 'session-buddy: ui')
 }

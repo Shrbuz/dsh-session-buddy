@@ -382,4 +382,78 @@ export const BUDDY_CSS = `
   color: var(--dsw-alias-label-primary, #0f1115);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
+
+/* ---- collapsed tool-run bar (对话内折叠条) ---- */
+/* A clickable row that replaces a completed turn's tool cards with a single
+   "共执行 X 步操作" summary. Theme-aware through the official --dsw-alias-*
+   tokens; looks like a quiet, thin chip rather than a loud card. */
+.dsb-collapse-bar {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--dsw-alias-label-tertiary, #81858c);
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, 0.06));
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+.dsb-collapse-bar:hover {
+  color: var(--dsw-alias-label-primary, #0f1115);
+  background: var(--dsw-alias-interactive-bg-hover-solid, rgba(38, 49, 72, 0.1));
+}
+.dsb-collapse-bar:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-l3, rgba(0, 0, 0, 0.2));
+  outline-offset: 1px;
+}
+.dsb-collapse-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsb-collapse-chevron {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.12s ease;
+}
+/* Chevron glyph: a small triangle rendered with a border trick (kept subtle,
+   not the official solid triangle — matches the quiet chip aesthetic). */
+.dsb-collapse-chevron::after {
+  content: '';
+  box-sizing: border-box;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(45deg);
+}
+.dsb-collapse-bar.dsb-collapse-open .dsb-collapse-chevron::after {
+  transform: translateY(1px) rotate(-135deg);
+}
+
+/* ---- over-long user question clamp ---- */
+/* Folded: the JS clamps max-height/overflow inline; this class adds a soft
+   bottom fade so the user sees there is more below the visible 6 lines. */
+.dsb-user-clamped {
+  -webkit-mask-image: linear-gradient(to bottom, black 62%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 62%, transparent 100%);
+}
+.dsb-user-bar {
+  margin-top: 6px;
+}
 `
+

@@ -25,6 +25,12 @@ export interface SessionBuddyUiSettings {
   outlineWidth: number
   /** Show per-rung timestamps in the tooltip. */
   showTimestamps: boolean
+  /** Fold each completed turn's tool calls into one count row. */
+  collapseTools: boolean
+  /** Fold each completed turn's think blocks (+ context rows) into one count row. */
+  foldThink: boolean
+  /** Fold over-long user questions to a few lines (expandable). */
+  foldLongUser: boolean
 }
 
 /** Schema-resolved section of the `session-buddy` namespace (host-side mirror). */
@@ -36,6 +42,9 @@ interface SessionBuddyWireSection {
   sound?: unknown
   outlineWidth?: unknown
   showTimestamps?: unknown
+  collapseTools?: unknown
+  foldThink?: unknown
+  foldLongUser?: unknown
 }
 
 /** Normalize an unknown section value to the UI settings (lenient). */
@@ -52,6 +61,9 @@ function decodeSection(section: unknown): SessionBuddyUiSettings | undefined {
       ? Math.min(32, Math.max(12, Math.round(value.outlineWidth)))
       : 18,
     showTimestamps: value.showTimestamps !== false,
+    collapseTools: value.collapseTools !== false,
+    foldThink: value.foldThink !== false,
+    foldLongUser: value.foldLongUser !== false,
   }
 }
 
@@ -70,6 +82,9 @@ export const DEFAULT_UI_SETTINGS: SessionBuddyUiSettings = {
   sound: false,
   outlineWidth: 18,
   showTimestamps: true,
+  collapseTools: true,
+  foldThink: true,
+  foldLongUser: true,
 }
 
 /** Derive the effective settings from a bound scope (never throws). */
